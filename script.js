@@ -35,7 +35,7 @@
   /* Brevo v3 — welcome emails on newsletter signup (Transactional v3 API key) */
   const BREVO_CONFIG = {
     endpoint: "https://api.brevo.com/v3/smtp/email",
-    apiKey: "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",
+    
   };
 
   /* SMS alert to the boutique — Brevo v3 SMS (same API key as email). No-op when
