@@ -1,0 +1,528 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <!-- Google Identity Services SDK — One-Tap & account sign-in -->
+  <script src="https://accounts.google.com/gsi/client" async defer></script>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="description" content="LUREÍ luxury gift cards &amp; loyalty rewards — S925 sterling silver digital vouchers, VIP perks and exclusive gifting unboxing in Dubai, UAE." />
+  <meta name="theme-color" content="#1A1A1A" />
+  <title>LUREÍ — Luxury Gift Cards &amp; Rewards | Dubai, UAE</title>
+
+  <!-- Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,400;0,500;0,600;1,400;1,500&family=Plus+Jakarta+Sans:wght@300;400;500;600;700&display=swap" rel="stylesheet" />
+
+  <!-- Styles -->
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+
+  <!-- ======================= 1. TOP ANNOUNCEMENT BAR ======================= -->
+  <div class="announcement-bar" role="region" aria-label="Announcement">
+    <p class="announcement-bar__text">
+      Summer Sale: Up to <strong>70% OFF</strong> &nbsp;|&nbsp; Free Shipping across UAE over <strong>AED 250</strong>
+    </p>
+  </div>
+
+  <!-- ======================= 2. NAVBAR ======================= -->
+  <header class="navbar" role="banner">
+    <div class="container navbar__inner">
+
+      <!-- Brand logo -->
+      <a href="index.html" class="brand" aria-label="LUREÍ home">
+        <span class="brand__name">Lure<span class="brand__accent">í</span></span>
+        <span class="brand__tagline">Dubai &bull; S925 Silver</span>
+      </a>
+
+      <!-- Center navigation -->
+      <nav class="nav" aria-label="Primary navigation">
+        <ul class="nav__list">
+          <li class="nav__item"><a href="index.html" class="nav__link">Home</a></li>
+          <li class="nav__item">
+            <a href="collections.html" class="nav__link">
+              Collections
+              <svg class="nav__caret" viewBox="0 0 24 24" width="10" height="10" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 9l6 6 6-6"></path></svg>
+            </a>
+          </li>
+          <li class="nav__item"><a href="new-in.html" class="nav__link">New In</a></li>
+          <li class="nav__item"><a href="gift-cards.html" class="nav__link nav__link--active">Gift Cards</a></li>
+          <li class="nav__item"><a href="about.html" class="nav__link">About Us</a></li>
+        </ul>
+      </nav>
+
+      <!-- Right icon set -->
+      <div class="nav-actions" role="toolbar" aria-label="Account and search tools">
+        <button class="icon-btn" type="button" aria-label="Search">
+          <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <circle cx="11" cy="11" r="7"></circle><path d="M21 21l-4.35-4.35"></path>
+          </svg>
+        </button>
+        <button class="icon-btn nav-profile" id="nav-profile" type="button" aria-label="Your account">
+          <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <circle cx="12" cy="8" r="4"></circle><path d="M4 21c0-4 3.6-6 8-6s8 2 8 6"></path>
+          </svg>
+        </button>
+        <button class="icon-btn" type="button" aria-label="Wishlist">
+          <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M12 21l-8.5-8.5a5.6 5.6 0 1 1 8.5-7.5 5.6 5.6 0 1 1 8.5 7.5L12 21z"></path>
+          </svg>
+        </button>
+        <button class="icon-btn cart-btn" type="button" aria-label="Shopping bag, 0 items">
+          <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M6 7h12l1.5 13h-15L6 7z"></path><path d="M9 10V6a3 3 0 0 1 6 0v4"></path>
+          </svg>
+          <span class="cart-badge" data-cart-count="0">0</span>
+        </button>
+      </div>
+
+      <!-- Mobile menu trigger -->
+      <button class="nav-toggle" type="button" aria-label="Open menu" aria-expanded="false">
+        <span class="nav-toggle__bar"></span>
+        <span class="nav-toggle__bar"></span>
+        <span class="nav-toggle__bar"></span>
+      </button>
+
+    </div>
+  </header>
+
+  <main id="top">
+
+    <!-- ======================= GIFT CARDS — HERO ======================= -->
+    <section class="gc-hero" aria-labelledby="gc-hero-title">
+      <div class="container gc-hero__inner">
+        <p class="gc-hero__kicker">LUREÍ GIFT CARDS &amp; VIP REWARDS</p>
+        <h1 class="gc-hero__title" id="gc-hero-title">THE GIFT OF UNRIVALED ELEGANCE</h1>
+        <p class="gc-hero__sub">Delight your loved ones with LUREÍ S925 Sterling Silver digital vouchers and unlock exclusive VIP rewards.</p>
+      </div>
+    </section>
+
+    <!-- ======================= CARD SELECTION + LIVE PREVIEW ======================= -->
+    <section class="gc-section gc-stage" aria-labelledby="gc-cards-title">
+      <div class="container">
+        <header class="gc-section__head">
+          <h2 class="gc-section__title" id="gc-cards-title">Choose Your Edition</h2>
+          <p class="gc-section__lead">Five premium editions — select one and personalise below.</p>
+        </header>
+
+        <div class="gc-stage__grid">
+
+          <!-- Live preview -->
+          <div class="gc-preview" aria-live="polite">
+            <div class="gc-preview__card" id="gc-preview-card">
+              <span class="gc-preview__brand">LUREÍ</span>
+              <span class="gc-preview__divider"></span>
+              <span class="gc-preview__label">LUXURY GIFT CARD</span>
+              <span class="gc-preview__amount" id="gc-amount">AED 50</span>
+              <span class="gc-preview__meta" id="gc-recipient">Your Recipient</span>
+              <span class="gc-preview__message" id="gc-message">A spark of elegance, just for you.</span>
+              <span class="gc-preview__code">LUREÍ — S925 STERLING SILVER · DIGITAL</span>
+            </div>
+            <p class="gc-preview__caption">Live metallic-foil preview — updates as you type.</p>
+          </div>
+
+          <!-- 4 metallic editions -->
+          <div class="gc-cards" role="radiogroup" aria-labelledby="gc-cards-title">
+            <button class="gc-card gc-card--silver" type="button" role="radio" aria-checked="false" data-gc-amount="25">
+              <span class="gc-card__brand">LUREÍ</span>
+              <span class="gc-card__line"></span>
+              <span class="gc-card__amount">AED 25</span>
+              <span class="gc-card__mat">Silver Sparkle Tier</span>
+            </button>
+
+            <button class="gc-card gc-card--champagne is-selected" type="button" role="radio" aria-checked="true" data-gc-amount="50">
+              <span class="gc-card__brand">LUREÍ</span>
+              <span class="gc-card__line"></span>
+              <span class="gc-card__amount">AED 50</span>
+              <span class="gc-card__mat">Classic Elegance Tier</span>
+            </button>
+
+            <button class="gc-card gc-card--sapphire" type="button" role="radio" aria-checked="false" data-gc-amount="100">
+              <span class="gc-card__brand">LUREÍ</span>
+              <span class="gc-card__line"></span>
+              <span class="gc-card__amount">AED 100</span>
+              <span class="gc-card__mat">Royal Velvet Tier</span>
+            </button>
+
+            <button class="gc-card gc-card--rosegold" type="button" role="radio" aria-checked="false" data-gc-amount="200">
+              <span class="gc-card__brand">LUREÍ</span>
+              <span class="gc-card__line"></span>
+              <span class="gc-card__amount">AED 200</span>
+              <span class="gc-card__mat">Crown Luxury Tier</span>
+            </button>
+
+            <button class="gc-card gc-card--onyx gc-card--wide" type="button" role="radio" aria-checked="false" data-gc-amount="custom">
+              <span class="gc-card__brand">LUREÍ</span>
+              <span class="gc-card__line"></span>
+              <span class="gc-card__amount">Custom</span>
+              <span class="gc-card__mat">Onyx Emerald Edition</span>
+            </button>
+          </div>
+
+        </div>
+      </div>
+    </section>
+
+    <!-- ======================= PERSONALISATION & CHECKOUT ======================= -->
+    <section class="gc-section gc-customize" aria-labelledby="gc-form-title">
+      <div class="container">
+        <header class="gc-section__head">
+          <h2 class="gc-section__title" id="gc-form-title">Personalise &amp; Purchase</h2>
+          <p class="gc-section__lead">Your message, your timeline — delivered in signature LUREÍ luxury.</p>
+        </header>
+
+        <form class="gc-form" id="gc-form" novalidate>
+          <div class="gc-form__grid">
+            <div class="field">
+              <label class="field__label" for="gc-name">Recipient Name</label>
+              <input class="field__input" id="gc-name" name="gc-name" type="text" placeholder="e.g. Sara Al Maktoum" autocomplete="off" />
+            </div>
+
+            <div class="field">
+              <label class="field__label" for="gc-email">Recipient Email</label>
+              <input class="field__input" id="gc-email" name="gc-email" type="email" placeholder="e.g. sara@email.com" autocomplete="off" />
+            </div>
+
+            <div class="field field--full">
+              <label class="field__label" for="gc-note">Personalized Gift Note</label>
+              <textarea class="field__input" id="gc-note" name="gc-note" rows="3" placeholder="Write a message that will appear on the digital card..."></textarea>
+            </div>
+
+            <fieldset class="field field--full gc-delivery">
+              <legend class="field__label">Delivery</legend>
+              <div class="gc-delivery__modes">
+                <label class="pay-option">
+                  <input type="radio" name="gc-delivery" value="now" checked />
+                  <span class="pay-option__body">
+                    <span class="pay-option__title">Send Now</span>
+                    <span class="pay-option__hint">Voucher emailed instantly</span>
+                  </span>
+                </label>
+                <label class="pay-option">
+                  <input type="radio" name="gc-delivery" value="schedule" />
+                  <span class="pay-option__body">
+                    <span class="pay-option__title">Schedule Date</span>
+                    <span class="pay-option__hint">Choose a future delivery day</span>
+                  </span>
+                </label>
+              </div>
+              <div class="gc-delivery__date" id="gc-date-wrap" hidden>
+                <label class="field__label" for="gc-date">Delivery Date</label>
+                <input class="field__input" id="gc-date" name="gc-date" type="date" />
+              </div>
+            </fieldset>
+          </div>
+
+          <div class="gc-custom-amount-field" id="gc-custom-amount-field" hidden>
+            <label class="field__label" for="gc-custom-amount">Custom Amount (AED)</label>
+            <input class="field__input" id="gc-custom-amount" name="gc-custom-amount" type="number" min="50" step="10" placeholder="e.g. 350" />
+          </div>
+
+          <button class="btn btn--gc" type="submit">
+            Purchase Luxury Gift Card &mdash; AED <span id="gc-btn-amount">50</span>
+          </button>
+          <p class="gc-form__note">Gift cards are delivered as elegant digital vouchers and are redeemable across all LUREÍ collections.</p>
+        </form>
+
+        <div class="gc-success" id="gc-success" hidden role="status">
+          <span class="gc-success__icon" aria-hidden="true">&#10003;</span>
+          <h3 class="gc-success__title">Your Luxury Gift Card Awaits</h3>
+          <p class="gc-success__text">Our team is preparing the voucher. The recipient will receive it at your chosen delivery time, wrapped in signature LUREÍ elegance.</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- ======================= LOYALTY & GIFTING PERKS ======================= -->
+    <section class="gc-section gc-perks" aria-labelledby="gc-perks-title">
+      <div class="container">
+        <header class="gc-section__head">
+          <h2 class="gc-section__title" id="gc-perks-title">LUREÍ Loyalty &amp; Gifting Perks</h2>
+          <p class="gc-section__lead">Every gift card unlocks an exclusive world of rewards.</p>
+        </header>
+
+        <div class="gc-perks__grid">
+          <article class="gc-perk">
+            <span class="gc-perk__icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24" width="26" height="26" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"></circle><path d="M12 7v10M9 9.5h4.2a1.8 1.8 0 0 1 0 3.6H10.5a1.8 1.8 0 0 0 0 3.6H15"></path></svg>
+            </span>
+            <h3 class="gc-perk__title">Tier Loyalty Rewards</h3>
+            <p class="gc-perk__text">Earn points for every AED spent, redeemable on future silver drops.</p>
+          </article>
+
+          <article class="gc-perk">
+            <span class="gc-perk__icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24" width="26" height="26" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M21 8l-9-4-9 4 9 4 9-4z"></path><path d="M21 8v6"></path></svg>
+            </span>
+            <h3 class="gc-perk__title">Velvet Gift Unboxing</h3>
+            <p class="gc-perk__text">All gift card orders include complimentary signature black &amp; gold velvet presentation boxes.</p>
+          </article>
+
+          <article class="gc-perk">
+            <span class="gc-perk__icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24" width="26" height="26" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l1.8 4.6L18 9l-4.2 1.4L12 15l-1.8-4.6L6 9l4.2-1.4L12 3z"></path><path d="M19 15l.9 2.3L22 18l-2.1.7L19 21l-.9-2.3L16 18l2.1-.7L19 15z"></path></svg>
+            </span>
+            <h3 class="gc-perk__title">Exclusive Bonus Voucher</h3>
+            <p class="gc-perk__text">Receive an instant AED 30 voucher back when purchasing any AED 250+ Gift Card.</p>
+          </article>
+        </div>
+      </div>
+    </section>
+
+  </main>
+
+  <!-- ======================= FOOTER ======================= -->
+  <footer class="footer" role="contentinfo">
+    <div class="container footer__grid">
+
+      <div class="footer__col footer__col--newsletter">
+        <h3 class="footer__heading footer-newsletter-title">Join the LUREÍ circle</h3>
+        <p class="footer__text footer-newsletter-sub">Receive early access to new drops, private sales &amp; styling notes.</p>
+        <div class="footer-newsletter-input-wrap">
+          <form class="newsletter-form" id="newsletter-form" novalidate>
+            <input
+              class="footer__input"
+              type="text"
+              id="newsletter-name"
+              name="name"
+              placeholder="Your Name"
+              aria-label="Your Name"
+              required />
+            <div class="newsletter-form__row">
+              <input
+                class="footer__input"
+                type="email"
+                id="newsletter-email"
+                name="email"
+                placeholder="Your Email address"
+                aria-label="Your Email address"
+                required />
+              <button class="footer__submit" id="newsletter-submit" type="submit" aria-label="Subscribe">
+                <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M22 2L11 13"></path><path d="M22 2l-7 20-4-9-9-4z"></path></svg>
+              </button>
+            </div>
+          </form>
+        </div>
+        <p class="footer__note" id="newsletter-note" hidden>Thank you — welcome to LUREÍ.</p>
+      </div>
+
+      <nav class="footer__col" aria-label="Shop links">
+        <h3 class="footer__heading">Shop</h3>
+        <ul class="footer__links">
+          <li><a href="new-in.html" class="footer__link">New Arrivals</a></li>
+          <li><a href="collections.html" class="footer__link">All Jewellery</a></li>
+          <li><a href="collections.html?category=necklaces" class="footer__link">Necklaces</a></li>
+          <li><a href="collections.html?category=rings" class="footer__link">Rings</a></li>
+          <li><a href="collections.html?category=bracelets" class="footer__link">Bracelets</a></li>
+        </ul>
+      </nav>
+
+      <nav class="footer__col" aria-label="Company links">
+        <h3 class="footer__heading">Company</h3>
+        <ul class="footer__links">
+          <li><a href="about.html" class="footer__link">About Us</a></li>
+          <li><a href="#contact" class="footer__link" data-open-service="contact">Contact Us</a></li>
+          <li><a href="#stores" class="footer__link" data-open-service="stores">Customer Care</a></li>
+          <li><a href="about.html#faq-section" class="footer__link">FAQ</a></li>
+        </ul>
+      </nav>
+
+      <div class="footer__col footer__col--brand">
+        <a href="#top" class="brand" aria-label="LUREÍ home">
+          <span class="brand__name brand__name--light">Lure<span class="brand__accent">í</span></span>
+          <span class="brand__tagline">Dubai &bull; S925 Silver</span>
+        </a>
+        <p class="footer__blurb">Fine jewellery for every moment — designed in Dubai, delivered across the Emirates.</p>
+        <div class="footer__social" role="list" aria-label="Social media">
+          <a href="https://www.instagram.com/lurei.ae/" class="footer__social-link" aria-label="Instagram" role="listitem" target="_blank" rel="noopener noreferrer">
+            <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="3" width="18" height="18" rx="5"></rect><circle cx="12" cy="12" r="4"></circle><circle cx="17.2" cy="6.8" r="1"></circle></svg>
+          </a>
+          <a href="#" class="footer__social-link" aria-label="Facebook" role="listitem">
+            <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 8h3V5h-3a4 4 0 0 0-4 4v2H7v3h3v7h3v-7h3l1-3h-4V9a1 1 0 0 1 1-1z"></path></svg>
+          </a>
+          <a href="#" class="footer__social-link" aria-label="X (formerly Twitter)" role="listitem">
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor" aria-hidden="true"><path d="M18.2 2H21l-6.4 7.3L22 22h-5.9l-4.6-6-5.3 6H2.5l6.9-7.9L2 2h6l4.1 5.5L18.2 2zm-1.1 18h1.6L7 3.9H5.3L17.1 20z"></path></svg>
+          </a>
+        </div>
+        <p class="footer__legal">&copy; <span data-year></span> LUREÍ &bull; Dubai, UAE. All rights reserved.</p>
+      </div>
+
+    </div>
+  </footer>
+
+  <!-- ======================= ACCOUNT AUTH MODAL ======================= -->
+  <div class="auth-modal" id="auth-modal" role="dialog" aria-modal="true" aria-labelledby="auth-title" aria-hidden="true" hidden>
+    <div class="auth-modal__card">
+      <header class="auth-modal__head">
+        <h2 class="auth-modal__title" id="auth-title">LUREÍ DUBAI &mdash; Account Access</h2>
+        <button class="auth-modal__close" type="button" id="auth-close" aria-label="Close account menu">
+          <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"></path></svg>
+        </button>
+      </header>
+
+      <div class="auth-modal__tabs" role="tablist" aria-label="Account options">
+        <button class="auth-tab is-active" type="button" role="tab" aria-selected="true" data-auth-panel="signin">Sign In</button>
+        <button class="auth-tab" type="button" role="tab" aria-selected="false" data-auth-panel="create">Create Free Account</button>
+      </div>
+
+      <section class="auth-panel is-active" id="auth-panel-signin" role="tabpanel">
+        <div class="auth-panel__google">
+          <div id="g_id_signin_wrap"></div>
+          <p class="auth-panel__divider"><span>or continue with email</span></p>
+        </div>
+        <form class="auth-form" id="auth-signin-form" novalidate>
+          <div class="field">
+            <label class="field__label" for="auth-signin-email">Email Address</label>
+            <input class="field__input auth-input" id="auth-signin-email" type="email" placeholder="you@email.com" autocomplete="email" required />
+          </div>
+          <div class="field">
+            <label class="field__label" for="auth-signin-password">Password</label>
+            <input class="field__input auth-input" id="auth-signin-password" type="password" placeholder="Enter your password" autocomplete="current-password" required />
+          </div>
+          <button class="btn btn--auth" type="submit">Login</button>
+        </form>
+      </section>
+
+      <section class="auth-panel" id="auth-panel-create" role="tabpanel" hidden>
+        <form class="auth-form" id="auth-create-form" novalidate>
+          <div class="field">
+            <label class="field__label" for="auth-create-name">Full Name</label>
+            <input class="field__input auth-input" id="auth-create-name" type="text" placeholder="Your full name" autocomplete="name" required />
+          </div>
+          <div class="field">
+            <label class="field__label" for="auth-create-email">Email Address</label>
+            <input class="field__input auth-input" id="auth-create-email" type="email" placeholder="you@email.com" autocomplete="email" required />
+          </div>
+          <div class="field">
+            <label class="field__label" for="auth-create-password">Password</label>
+            <input class="field__input auth-input" id="auth-create-password" type="password" placeholder="At least 6 characters" autocomplete="new-password" minlength="6" required />
+          </div>
+          <button class="btn btn--auth" type="submit">Create Account</button>
+        </form>
+      </section>
+
+      <button class="auth-guest" type="button" id="auth-guest">Continue as Guest</button>
+    </div>
+  </div>
+
+  <!-- ======================= CART DRAWER ======================= -->
+  <div class="cart-overlay" id="cart-overlay" aria-hidden="true"></div>
+
+  <aside class="cart-drawer" id="cart-drawer" role="dialog" aria-modal="true" aria-labelledby="cart-title" tabindex="-1">
+    <header class="cart-drawer__head">
+      <h2 class="cart-drawer__title" id="cart-title">Your Bag</h2>
+      <button class="cart-drawer__close" type="button" id="cart-close" aria-label="Close cart">
+        <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"></path></svg>
+      </button>
+    </header>
+
+    <div class="cart-drawer__items" id="cart-items"></div>
+
+    <footer class="cart-drawer__foot">
+      <div class="cart-drawer__subtotal">
+        <span class="cart-drawer__subtotal-label">Subtotal</span>
+        <span class="cart-drawer__subtotal-value" id="cart-subtotal">AED 0.00</span>
+      </div>
+      <button class="btn btn--checkout" type="button" id="checkout-btn" disabled>Proceed to Checkout</button>
+      <p class="cart-drawer__note">Shipping &amp; taxes calculated at checkout.</p>
+    </footer>
+  </aside>
+
+  <!-- ======================= CHECKOUT MODAL ======================= -->
+  <div class="modal-overlay" id="checkout-overlay" aria-hidden="true"></div>
+
+  <div class="modal" id="checkout-modal" role="dialog" aria-modal="true" aria-labelledby="checkout-title" hidden>
+    <div class="modal__card">
+
+      <header class="modal__head">
+        <h2 class="modal__title" id="checkout-title">Secure Checkout</h2>
+        <button class="modal__close" type="button" id="checkout-close" aria-label="Close checkout">
+          <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"></path></svg>
+        </button>
+      </header>
+
+      <!-- Order summary -->
+      <div class="checkout-summary">
+        <div class="checkout-summary__row">
+          <span id="checkout-items-label">Items (0)</span>
+          <span id="checkout-summary-total">AED 0.00</span>
+        </div>
+      </div>
+
+      <!-- Form -->
+      <form class="checkout-form" id="checkout-form">
+        <div class="field">
+          <label class="field__label" for="cust-name">Customer Name</label>
+          <input class="field__input" id="cust-name" name="name" type="text" placeholder="e.g. Ahmed Al Farsi" autocomplete="name" required />
+        </div>
+
+        <div class="field">
+          <label class="field__label" for="cust-phone">Phone</label>
+          <input class="field__input" id="cust-phone" name="phone" type="tel" placeholder="e.g. +971 50 123 4567" autocomplete="tel" pattern="[+]?[0-9][0-9\s\-]{6,14}" required />
+        </div>
+
+        <div class="field">
+          <label class="field__label" for="cust-email">Email Address</label>
+          <input class="field__input" id="cust-email" name="email" type="email" placeholder="you@email.com" autocomplete="email" required />
+        </div>
+
+        <div class="field">
+          <label class="field__label" for="cust-address">Shipping Address in UAE</label>
+          <textarea class="field__input" id="cust-address" name="address" rows="3" placeholder="Street, building, apartment — Dubai / Abu Dhabi / Sharjah..." autocomplete="street-address" required></textarea>
+        </div>
+
+        <fieldset class="field field--payments">
+          <legend class="field__label">Payment Options</legend>
+          <label class="pay-option">
+            <input type="radio" name="payment" value="card" />
+            <span class="pay-option__icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="5" width="20" height="14" rx="2.5"></rect><path d="M2 10h20M6 15h4"></path></svg>
+            </span>
+            <span class="pay-option__body">
+              <span class="pay-option__title">Online Payment</span>
+              <span class="pay-option__hint">Visa, Mastercard, Mada, AMEX</span>
+            </span>
+          </label>
+
+          <label class="pay-option">
+            <input type="radio" name="payment" value="cod" checked />
+            <span class="pay-option__icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"></circle><path d="M8 12l2.5 2.5L16 9.5"></path></svg>
+            </span>
+            <span class="pay-option__body">
+              <span class="pay-option__title">Cash on Delivery</span>
+              <span class="pay-option__hint">Pay when your order arrives</span>
+            </span>
+          </label>
+        </fieldset>
+
+        <button class="btn btn--checkout btn--checkout-block" type="submit">Place Order &mdash; AED <span id="checkout-submit-total">0.00</span></button>
+      </form>
+
+      <!-- Success -->
+      <div class="checkout-success" id="checkout-success" hidden>
+        <span class="checkout-success__icon" aria-hidden="true">
+          <svg viewBox="0 0 24 24" width="34" height="34" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"></circle><path d="M8 12l2.5 2.5L16 9.5"></path></svg>
+        </span>
+        <h3 class="checkout-success__title">Order Placed</h3>
+        <p class="checkout-success__ref">Order <strong id="checkout-order-ref">LUREI-000000</strong></p>
+        <dl class="checkout-success__details">
+          <div><dt>Customer</dt><dd id="success-name">&mdash;</dd></div>
+          <div><dt>Phone</dt><dd id="success-phone">&mdash;</dd></div>
+          <div><dt>Email</dt><dd id="success-email">&mdash;</dd></div>
+          <div><dt>Address</dt><dd id="success-address">&mdash;</dd></div>
+          <div><dt>Payment</dt><dd id="success-payment">&mdash;</dd></div>
+          <div><dt>Total</dt><dd id="success-total">&mdash;</dd></div>
+        </dl>
+        <p class="checkout-success__note">Our team has received your order &mdash; your invoice (<strong>LUREI_Order_Invoice.pdf</strong>) has been downloaded. We&#39;ll call you shortly to confirm delivery across the UAE.</p>
+        <button class="btn btn--outline" type="button" id="checkout-done">Continue Shopping</button>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- Scripts -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+  <script src="script.js"></script>
+</body>
+</html>

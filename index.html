@@ -1,0 +1,666 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <!-- Google Identity Services SDK — One-Tap & account sign-in -->
+  <script src="https://accounts.google.com/gsi/client" async defer></script>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="description" content="LUREÍ — Dubai fine jewellery &amp; accessories. Certified S925 sterling silver and 18K gold plated pieces. Free shipping across UAE over AED 250." />
+  <meta name="theme-color" content="#1A1A1A" />
+  <title>LUREÍ — Fine Jewellery &amp; Accessories | Dubai, UAE</title>
+
+  <!-- Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,400;0,500;0,600;1,400;1,500&family=Plus+Jakarta+Sans:wght@300;400;500;600;700&display=swap" rel="stylesheet" />
+
+  <!-- Styles -->
+  <link rel="stylesheet" href="styles.css" />
+
+  <!-- jsPDF UMD — invoice generation -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+</head>
+<body>
+
+  <!-- ======================= 1. TOP ANNOUNCEMENT BAR ======================= -->
+  <div class="announcement-bar" role="region" aria-label="Announcement">
+    <p class="announcement-bar__text">
+      Summer Sale: Up to <strong>70% OFF</strong> &nbsp;|&nbsp; Free Shipping across UAE over <strong>AED 250</strong>
+    </p>
+  </div>
+
+  <!-- ======================= 2. NAVBAR ======================= -->
+  <header class="navbar" role="banner">
+    <div class="container navbar__inner">
+
+      <!-- Brand logo -->
+      <a href="#top" class="brand" aria-label="LUREÍ home">
+        <span class="brand__name">Lure<span class="brand__accent">í</span></span>
+        <span class="brand__tagline">Dubai &bull; S925 Silver</span>
+      </a>
+
+      <!-- Center navigation -->
+      <nav class="nav" aria-label="Primary navigation">
+        <ul class="nav__list">
+          <li class="nav__item"><a href="#" class="nav__link nav__link--active">Home</a></li>
+          <li class="nav__item">
+            <a href="collections.html" class="nav__link">
+              Collections
+              <svg class="nav__caret" viewBox="0 0 24 24" width="10" height="10" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 9l6 6 6-6"></path></svg>
+            </a>
+          </li>
+          <li class="nav__item"><a href="new-in.html" class="nav__link">New In</a></li>
+          <li class="nav__item"><a href="gift-cards.html" class="nav__link">Gift Cards</a></li>
+          <li class="nav__item"><a href="about.html" class="nav__link">About Us</a></li>
+        </ul>
+      </nav>
+
+      <!-- Right icon set -->
+      <div class="nav-actions" role="toolbar" aria-label="Account and search tools">
+        <button class="icon-btn" type="button" aria-label="Search">
+          <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <circle cx="11" cy="11" r="7"></circle><path d="M21 21l-4.35-4.35"></path>
+          </svg>
+        </button>
+        <button class="icon-btn nav-profile" id="nav-profile" type="button" aria-label="Your account">
+          <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <circle cx="12" cy="8" r="4"></circle><path d="M4 21c0-4 3.6-6 8-6s8 2 8 6"></path>
+          </svg>
+        </button>
+        <button class="icon-btn wishlist-icon" id="wishlist-open" type="button" aria-label="Open wishlist">
+          <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M12 21l-8.5-8.5a5.6 5.6 0 1 1 8.5-7.5 5.6 5.6 0 1 1 8.5 7.5L12 21z"></path>
+          </svg>
+          <span class="wishlist-badge is-hidden" data-wishlist-count="0">0</span>
+        </button>
+        <button class="icon-btn cart-btn" type="button" aria-label="Shopping bag, 0 items">
+          <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M6 7h12l1.5 13h-15L6 7z"></path><path d="M9 10V6a3 3 0 0 1 6 0v4"></path>
+          </svg>
+          <span class="cart-badge" data-cart-count="0">0</span>
+        </button>
+      </div>
+
+      <!-- Mobile menu trigger -->
+      <button class="nav-toggle" type="button" aria-label="Open menu" aria-expanded="false">
+        <span class="nav-toggle__bar"></span>
+        <span class="nav-toggle__bar"></span>
+        <span class="nav-toggle__bar"></span>
+      </button>
+
+    </div>
+  </header>
+
+  <main id="top">
+
+    <!-- ======================= 3. HERO ======================= -->
+    <section class="hero" aria-label="Introduction">
+      <div class="container hero__inner">
+
+        <div class="hero__content">
+          <p class="hero__kicker">TIMELESS ELEGANCE</p>
+          <h1 class="hero__title">Shine in Every Moment</h1>
+          <p class="hero__subtext">Fine jewellery crafted to celebrate your beautiful journey.</p>
+          <a href="collections.html" class="btn btn--gold">Shop Collection <span aria-hidden="true">&rarr;</span></a>
+        </div>
+
+        <div class="hero__visual">
+          <div class="hero__circle" aria-hidden="true">
+            <img src="assets/banner/hero-1.jpg.png" class="hero-slide active" alt="LUREI Banner 1">
+            <img src="assets/banner/hero-2.jpg.png" class="hero-slide" alt="LUREI Banner 2">
+            <img src="assets/banner/hero-3.jpg.png" class="hero-slide" alt="LUREI Banner 3">
+            <img src="assets/banner/hero-4.jpg.png" class="hero-slide" alt="LUREI Banner 4">
+            <img src="assets/banner/hero-5.jpg.jpeg" class="hero-slide" alt="LUREI Banner 5">
+            <img src="assets/banner/hero-6.jpg.png" class="hero-slide" alt="LUREI Banner 6">
+            <img src="assets/banner/hero-7.jpg.png" class="hero-slide" alt="LUREI Banner 7">
+          </div>
+          <!-- Model arch photo disabled: the circular slideshow is the hero visual. -->
+          <!--
+          <figure class="hero__frame">
+            <img
+              id="hero-model"
+              src="model.jpg"
+              alt="Model wearing LUREÍ S925 silver necklaces"
+              width="600" height="760" loading="eager"
+              data-fallback-src="https://images.unsplash.com/photo-1515562141207-7a88fb7ce338?q=80&w=1400&auto=format&fit=crop" />
+          </figure>
+          -->
+        </div>
+
+      </div>
+    </section>
+
+    <!-- ======================= 4. TOP SELLING PRODUCTS ======================= -->
+    <section class="section products" id="products" aria-labelledby="products-title">
+      <div class="container">
+        <header class="section__head">
+          <h2 class="section__title" id="products-title">Top Selling Products</h2>
+          <p class="section__lead">Our most-loved pieces, chosen by thousands across the UAE.</p>
+        </header>
+
+        <div class="trending__status" id="trending-status" role="status" aria-live="polite">Loading the latest collections&hellip;</div>
+
+        <div class="top-selling-carousel-container" id="products-container" aria-label="Top selling products">
+          <!-- Carousel track + batches injected by script.js -->
+        </div>
+
+        <div class="products__more">
+          <a href="collections.html" class="btn btn--outline">View All Collections <span aria-hidden="true">&rarr;</span></a>
+        </div>
+      </div>
+    </section>
+
+    <!-- ======================= 5. TICKER BANNER RIBBON ======================= -->
+    <section class="ticker" aria-label="Offers and brand highlights">
+      <div class="ticker__inner">
+        <span class="ticker__item">✦ Spring More, Pay Less: Up to 70% OFF ✦</span>
+      </div>
+    </section>
+
+    <!-- ======================= 5. SHOP BY CATEGORIES ======================= -->
+    <section class="section categories" aria-labelledby="categories-title">
+      <div class="container">
+        <header class="section__head"> 
+          <h2 class="section__title" id="categories-title">Shop by Categories</h2>
+        </header>
+
+        <div class="categories__grid">
+
+          <a href="collections.html?category=necklaces" class="cat-card">
+            <div class="cat-card__media">
+              <img src="https://images.unsplash.com/photo-1515562141207-7a88fb7ce338?q=80&w=900&auto=format&fit=crop" alt="Necklaces collection" width="600" height="760" loading="lazy" />
+            </div>
+            <span class="cat-card__pill">Necklaces</span>
+          </a>
+
+          <a href="collections.html?category=rings" class="cat-card">
+            <div class="cat-card__media">
+              <img src="https://images.unsplash.com/photo-1603561591411-07134e71a2a9?q=80&w=900&auto=format&fit=crop" alt="Rings collection" width="600" height="760" loading="lazy" />
+            </div>
+            <span class="cat-card__pill">Rings</span>
+          </a>
+
+          <a href="collections.html?category=earrings" class="cat-card">
+            <div class="cat-card__media">
+              <img src="https://images.unsplash.com/photo-1535632066927-ab7c9ab60908?q=80&w=900&auto=format&fit=crop" alt="Earrings collection" width="600" height="760" loading="lazy" />
+            </div>
+            <span class="cat-card__pill">Earrings</span>
+          </a>
+
+          <a href="collections.html?category=watches" class="cat-card">
+            <div class="cat-card__media">
+              <img src="https://images.unsplash.com/photo-1524592094714-0f0654e20314?q=80&w=900&auto=format&fit=crop" alt="Watches collection" width="600" height="760" loading="lazy" />
+            </div>
+            <span class="cat-card__pill">Watches</span>
+          </a>
+
+          <a href="collections.html?category=all" class="cat-card cat-card--discover">
+            <span class="cat-card__title">Discovery all new items</span>
+            <span class="cat-card__arrow" aria-hidden="true">
+              <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M13 6l6 6-6 6"></path></svg>
+            </span>
+          </a>
+
+        </div>
+      </div>
+    </section>
+
+    <!-- ======================= THE LURÉI LEGACY — brand story ======================= -->
+    <section class="legacy-editorial" aria-labelledby="legacy-editorial-title">
+      <div class="container legacy-editorial__grid">
+
+        <figure class="legacy-editorial__visual">
+          <img src="assets/images/legacy-craft.jpg" alt="Model wearing LURÉI S925 silver earrings" loading="lazy" />
+        </figure>
+
+        <div class="legacy-editorial__content">
+          <p class="legacy-editorial__label">THE ART OF LURÉI</p>
+          <h2 class="legacy-editorial__title" id="legacy-editorial-title">Unveiling the Mastery Behind Pure Elegance</h2>
+          <p class="legacy-editorial__text">True luxury isn&rsquo;t merely worn &mdash; it is sculpted. Step inside the secretive world of precision craftsmanship, where raw passion transforms into eternal brilliance.</p>
+          <blockquote class="legacy-editorial__quote">&ldquo;Every piece carries a soul, an untold story of obsession, grit, and silent devotion. Built for those who demand nothing less than extraordinary.&rdquo;</blockquote>
+          <a class="legacy-editorial__link legacy-cta-link" href="about.html#lurei-legacy">DISCOVER OUR STORY <span aria-hidden="true">&rarr;</span></a>
+        </div>
+
+      </div>
+    </section>
+
+    <!-- ======================= 7. HAPPY CLIENTS TESTIMONIALS ======================= -->
+    <section class="section testimonials" aria-labelledby="testimonials-title">
+      <div class="container">
+        <header class="section__head">
+          <h2 class="section__title" id="testimonials-title">Happy Clients</h2>
+          <p class="section__lead">Loved by thousands of customers</p>
+        </header>
+
+        <div class="testimonials__grid">
+
+          <article class="testimonial">
+            <div class="testimonial__stars" aria-label="Rated 5 out of 5 stars">
+              <span aria-hidden="true">&#9733;</span><span aria-hidden="true">&#9733;</span><span aria-hidden="true">&#9733;</span><span aria-hidden="true">&#9733;</span><span aria-hidden="true">&#9733;</span>
+            </div>
+            <blockquote class="testimonial__quote">
+              "The craftsmanship on the silver chain is exceptional. It has a gorgeous weight and a subtle luxury finish that elevates every outfit."
+            </blockquote>
+            <div class="testimonial__person">
+              <img src="https://images.unsplash.com/photo-1494790108377-be9c29b29330?q=80&w=200&auto=format&fit=crop" alt="Portrait of Layla Hassan" width="56" height="56" loading="lazy" />
+              <div class="testimonial__meta">
+                <span class="testimonial__name">Layla Hassan</span>
+                <span class="testimonial__verify">
+                  <svg viewBox="0 0 24 24" width="12" height="12" fill="currentColor" aria-hidden="true"><path d="M9 16.2l-3.5-3.5L4 14.2 9 19l11-11-1.5-1.5z"></path></svg>
+                  Verified Buyer
+                </span>
+              </div>
+            </div>
+          </article>
+
+          <article class="testimonial">
+            <div class="testimonial__stars" aria-label="Rated 5 out of 5 stars">
+              <span aria-hidden="true">&#9733;</span><span aria-hidden="true">&#9733;</span><span aria-hidden="true">&#9733;</span><span aria-hidden="true">&#9733;</span><span aria-hidden="true">&#9733;</span>
+            </div>
+            <blockquote class="testimonial__quote">
+              "Impressed by the quality and fine detail. The silver maintains its flawless shine even after daily wear. Beautifully packaged as well."
+            </blockquote>
+            <div class="testimonial__person">
+              <img src="https://images.unsplash.com/photo-1508214751196-bcfd4ca60f91?q=80&w=200&auto=format&fit=crop" alt="Portrait of Mona Karim" width="56" height="56" loading="lazy" />
+              <div class="testimonial__meta">
+                <span class="testimonial__name">Mona Karim</span>
+                <span class="testimonial__verify">
+                  <svg viewBox="0 0 24 24" width="12" height="12" fill="currentColor" aria-hidden="true"><path d="M9 16.2l-3.5-3.5L4 14.2 9 19l11-11-1.5-1.5z"></path></svg>
+                  Verified Buyer
+                </span>
+              </div>
+            </div>
+          </article>
+
+          <article class="testimonial">
+            <div class="testimonial__stars" aria-label="Rated 5 out of 5 stars">
+              <span aria-hidden="true">&#9733;</span><span aria-hidden="true">&#9733;</span><span aria-hidden="true">&#9733;</span><span aria-hidden="true">&#9733;</span><span aria-hidden="true">&#9733;</span>
+            </div>
+            <blockquote class="testimonial__quote">
+              "Exquisite designs and prompt service. The ring looks even more breathtaking in person. Truly a premium experience from start to finish."
+            </blockquote>
+            <div class="testimonial__person">
+              <img src="https://images.unsplash.com/photo-1534528741775-53994a69daeb?q=80&w=200&auto=format&fit=crop" alt="Portrait of Priya Shah" width="56" height="56" loading="lazy" />
+              <div class="testimonial__meta">
+                <span class="testimonial__name">Priya Shah</span>
+                <span class="testimonial__verify">
+                  <svg viewBox="0 0 24 24" width="12" height="12" fill="currentColor" aria-hidden="true"><path d="M9 16.2l-3.5-3.5L4 14.2 9 19l11-11-1.5-1.5z"></path></svg>
+                  Verified Buyer
+                </span>
+              </div>
+            </div>
+          </article>
+
+        </div>
+      </div>
+    </section>
+
+    <!-- ======================= 8. BRAND LOGO STRIP ======================= -->
+    <section class="lurei-trust-partners" aria-label="Featured partners and retailers">
+      <div class="trust-header">
+        <span class="trust-tag">FEATURED PARTNERS &amp; RETAILERS</span>
+      </div>
+      <div class="brand-grid-container">
+        <div class="brand-grid-item">
+          <img src="assets/images/tanishq-logo.png" alt="Tanishq" class="brand-grid-img">
+          <span class="brand-grid-label">TANISHQ</span>
+        </div>
+        <div class="brand-grid-item">
+          <img src="assets/images/malabar-logo.png" alt="Malabar Gold &amp; Diamonds" class="brand-grid-img">
+          <span class="brand-grid-label">MALABAR</span>
+        </div>
+        <div class="brand-grid-item">
+          <img src="assets/images/senco-logo.png" alt="Senco Gold" class="brand-grid-img">
+          <span class="brand-grid-label">SENCO GOLD</span>
+        </div>
+        <div class="brand-grid-item">
+          <img src="assets/images/giva-logo.png" alt="Giva" class="brand-grid-img">
+          <span class="brand-grid-label">GIVA</span>
+        </div>
+        <div class="brand-grid-item">
+          <img src="assets/images/caratlane-logo.png" alt="CaratLane" class="brand-grid-img">
+          <span class="brand-grid-label">CARATLANE</span>
+        </div>
+        <div class="brand-grid-item">
+          <img src="assets/images/bluestone-logo.png" alt="BlueStone" class="brand-grid-img">
+          <span class="brand-grid-label">BLUESTONE</span>
+        </div>
+      </div>
+    </section>
+
+    <!-- ======================= BRAND PERKS ======================= -->
+    <section class="lurei-brand-perks-section" aria-label="Our promises">
+      <div class="container">
+        <div class="lurei-brand-perks-grid">
+
+          <article class="perk-card">
+            <span class="perk-card__icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24" width="30" height="30" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"></polygon></svg>
+            </span>
+            <h3 class="perk-card__title">Premium Quality</h3>
+            <p class="perk-card__text">Crafted with Care</p>
+          </article>
+
+          <article class="perk-card">
+            <span class="perk-card__icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24" width="30" height="30" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M6 3h12l6 6-12 12L0 9z"></path><path d="M0 9h24"></path></svg>
+            </span>
+            <h3 class="perk-card__title">Exclusive Designs</h3>
+            <p class="perk-card__text">Unique &amp; Timeless</p>
+          </article>
+
+          <article class="perk-card">
+            <span class="perk-card__icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24" width="30" height="30" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path></svg>
+            </span>
+            <h3 class="perk-card__title">Easy Returns</h3>
+            <p class="perk-card__text">14 Days Return Policy</p>
+          </article>
+
+          <article class="perk-card">
+            <span class="perk-card__icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24" width="30" height="30" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M3 18v-6a9 9 0 0 1 18 0v6"></path><path d="M21 19a2 2 0 0 1-2 2h-1a2 2 0 0 1-2-2v-3a2 2 0 0 1 2-2h3zM3 19a2 2 0 0 0 2 2h1a2 2 0 0 0 2-2v-3a2 2 0 0 0-2-2H3z"></path></svg>
+            </span>
+            <h3 class="perk-card__title">Customer Support</h3>
+            <p class="perk-card__text">Here to Help 24/7</p>
+          </article>
+
+        </div>
+      </div>
+    </section>
+
+    <!-- ======================= FAQ TEASER BAR ======================= -->
+    <section class="lurei-faq-bar" aria-label="Frequently asked questions teaser">
+      <a href="about.html#faq-section" class="lurei-faq-bar-link">
+        <span class="lurei-faq-bar-title">Curious to know more?</span>
+        <span class="lurei-faq-bar-sep" aria-hidden="true">|</span>
+        <span class="lurei-faq-bar-cta">Explore Frequently Asked Questions <span aria-hidden="true">&rarr;</span></span>
+      </a>
+    </section>
+
+    <!-- ======================= 10. FOOTER ======================= -->
+    <footer class="footer" role="contentinfo">
+      <div class="container footer__grid">
+
+        <div class="footer__col footer__col--newsletter">
+          <h3 class="footer__heading footer-newsletter-title">Join the LUREÍ circle</h3>
+          <p class="footer__text footer-newsletter-sub">Receive early access to new drops, private sales &amp; styling notes.</p>
+          <div class="footer-newsletter-input-wrap">
+            <form class="newsletter-form" id="newsletter-form" novalidate>
+              <input
+                class="footer__input"
+                type="text"
+                id="newsletter-name"
+                name="name"
+                placeholder="Your Name"
+                aria-label="Your Name"
+                required />
+              <div class="newsletter-form__row">
+                <input
+                  class="footer__input"
+                  type="email"
+                  id="newsletter-email"
+                  name="email"
+                  placeholder="Your Email address"
+                  aria-label="Your Email address"
+                  required />
+                <button class="footer__submit" id="newsletter-submit" type="submit" aria-label="Subscribe">
+                  <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M22 2L11 13"></path><path d="M22 2l-7 20-4-9-9-4z"></path></svg>
+                </button>
+              </div>
+            </form>
+          </div>
+          <p class="footer__note" id="newsletter-note" hidden>Thank you — welcome to LUREÍ.</p>
+        </div>
+
+        <nav class="footer__col" aria-label="Shop links">
+          <h3 class="footer__heading">Shop</h3>
+          <ul class="footer__links">
+            <li><a href="new-in.html" class="footer__link">New Arrivals</a></li>
+            <li><a href="collections.html" class="footer__link">All Jewellery</a></li>
+            <li><a href="collections.html?category=necklaces" class="footer__link">Necklaces</a></li>
+            <li><a href="collections.html?category=rings" class="footer__link">Rings</a></li>
+            <li><a href="collections.html?category=bracelets" class="footer__link">Bracelets</a></li>
+            <li><a href="collections.html?category=watches" class="footer__link">Watches</a></li>
+          </ul>
+        </nav>
+
+        <nav class="footer__col" aria-label="Company links">
+          <h3 class="footer__heading">Company</h3>
+          <ul class="footer__links">
+            <li><a href="about.html" class="footer__link">About Us</a></li>
+            <li><a href="contact.html" class="footer__link">Contact Us</a></li>
+            <li><a href="#stores" class="footer__link" data-open-service="stores">Customer Care</a></li>
+            <li><a href="about.html#faq-section" class="footer__link">FAQ</a></li>
+          </ul>
+        </nav>
+
+        <div class="footer__col footer__col--brand">
+          <a href="#top" class="brand" aria-label="LUREÍ home">
+            <span class="brand__name brand__name--light">Lure<span class="brand__accent">í</span></span>
+            <span class="brand__tagline">Dubai &bull; S925 Silver</span>
+          </a>
+          <p class="footer__blurb">Fine jewellery for every moment — designed in Dubai, delivered across the Emirates.</p>
+          <p class="footer__blurb">
+            <a href="mailto:lureiaccessories@gmail.com" class="footer__link">lureiaccessories@gmail.com</a><br />
+            <a href="https://wa.me/971525303886" class="footer__link">WhatsApp &amp; SMS &mdash; +971 52 530 3886</a><br />
+            <a href="tel:+971525303886" class="footer__link">+971 52 530 3886</a>
+          </p>
+          <div class="footer__social" role="list" aria-label="Social media">
+            <a href="https://www.instagram.com/lurei.ae/" class="footer__social-link" aria-label="Instagram" role="listitem" target="_blank" rel="noopener noreferrer">
+              <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="3" width="18" height="18" rx="5"></rect><circle cx="12" cy="12" r="4"></circle><circle cx="17.2" cy="6.8" r="1"></circle></svg>
+            </a>
+            <a href="#" class="footer__social-link" aria-label="Facebook" role="listitem">
+              <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 8h3V5h-3a4 4 0 0 0-4 4v2H7v3h3v7h3v-7h3l1-3h-4V9a1 1 0 0 1 1-1z"></path></svg>
+            </a>
+            <a href="#" class="footer__social-link" aria-label="X (formerly Twitter)" role="listitem">
+              <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor" aria-hidden="true"><path d="M18.2 2H21l-6.4 7.3L22 22h-5.9l-4.6-6-5.3 6H2.5l6.9-7.9L2 2h6l4.1 5.5L18.2 2zm-1.1 18h1.6L7 3.9H5.3L17.1 20z"></path></svg>
+            </a>
+          </div>
+          <p class="footer__legal">&copy; <span data-year></span> LUREÍ &bull; Dubai, UAE. All rights reserved.</p>
+        </div>
+
+      </div>
+    </footer>
+
+  </main>
+
+  <!-- ======================= ACCOUNT AUTH MODAL ======================= -->
+  <div class="auth-modal" id="auth-modal" role="dialog" aria-modal="true" aria-labelledby="auth-title" aria-hidden="true" hidden>
+    <div class="auth-modal__wrap">
+      <button class="auth-modal__back" type="button" id="modalBackBtn" style="position: absolute; top: -35px; left: 0px; background: none; border: none; font-size: 26px; cursor: pointer; color: #FAF8F5; z-index: 1010; padding: 0; line-height: 1;" aria-label="Back">&#8592;</button>
+      <div class="auth-modal__card">
+        <header class="auth-modal__head">
+          <h2 class="auth-modal__title" id="auth-title">LUREÍ DUBAI &mdash; Account Access</h2>
+        </header>
+
+      <div class="auth-modal__tabs" role="tablist" aria-label="Account options">
+        <button class="auth-tab is-active" type="button" role="tab" aria-selected="true" data-auth-panel="signin">Sign In</button>
+        <button class="auth-tab" type="button" role="tab" aria-selected="false" data-auth-panel="create">Create Free Account</button>
+      </div>
+
+      <section class="auth-panel is-active" id="auth-panel-signin" role="tabpanel">
+        <div class="auth-panel__google">
+          <div id="g_id_signin_wrap"></div>
+          <p class="auth-panel__divider"><span>or continue with email</span></p>
+        </div>
+        <form class="auth-form" id="auth-signin-form" autocomplete="off" novalidate>
+          <div class="field">
+            <label class="field__label" for="loginEmail">Email Address</label>
+            <input class="field__input auth-input" id="loginEmail" name="nobrowserautofill_email" type="email" placeholder="you@email.com" autocomplete="off" value="" required />
+          </div>
+          <div class="field">
+            <label class="field__label" for="loginPassword">Password</label>
+            <div style="position: relative; display: flex; align-items: center; width: 100%;">
+              <input class="field__input auth-input" id="loginPassword" name="nobrowserautofill_pass" type="password" placeholder="Enter your password" autocomplete="new-password" value="" required style="width: 100%; padding-right: 45px;" />
+              <span id="togglePasswordBtn" style="position: absolute; right: 15px; cursor: pointer; color: #888275; display: flex; align-items: center;" aria-label="Show password">
+                <svg id="eyeSvg" xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path><circle cx="12" cy="12" r="3"></circle></svg>
+              </span>
+            </div>
+          </div>
+          <button class="btn btn--auth" type="submit">Login</button>
+        </form>
+      </section>
+
+      <section class="auth-panel" id="auth-panel-create" role="tabpanel" hidden>
+        <form class="auth-form" id="auth-create-form" novalidate>
+          <div class="field">
+            <label class="field__label" for="auth-create-name">Full Name</label>
+            <input class="field__input auth-input" id="auth-create-name" type="text" placeholder="Your full name" autocomplete="name" required />
+          </div>
+          <div class="field">
+            <label class="field__label" for="auth-create-email">Email Address</label>
+            <input class="field__input auth-input" id="auth-create-email" type="email" placeholder="you@email.com" autocomplete="email" required />
+          </div>
+          <div class="field">
+            <label class="field__label" for="auth-create-password">Password</label>
+            <input class="field__input auth-input" id="auth-create-password" type="password" placeholder="At least 6 characters" autocomplete="new-password" minlength="6" required />
+          </div>
+          <button class="btn btn--auth" type="submit">Create Account</button>
+        </form>
+      </section>
+
+      <button class="auth-guest" type="button" id="auth-guest">Continue as Guest</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ======================= CART DRAWER ======================= -->
+  <div class="cart-overlay" id="cart-overlay" aria-hidden="true"></div>
+
+  <aside class="cart-drawer" id="cart-drawer" role="dialog" aria-modal="true" aria-labelledby="cart-title" tabindex="-1">
+    <header class="cart-drawer__head">
+      <h2 class="cart-drawer__title" id="cart-title">Your Bag</h2>
+      <button class="cart-drawer__close" type="button" id="cart-close" aria-label="Close cart">
+        <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"></path></svg>
+      </button>
+    </header>
+
+    <div class="cart-drawer__items" id="cart-items"></div>
+
+    <footer class="cart-drawer__foot">
+      <div class="cart-drawer__subtotal">
+        <span class="cart-drawer__subtotal-label">Subtotal</span>
+        <span class="cart-drawer__subtotal-value" id="cart-subtotal">AED 0.00</span>
+      </div>
+      <button class="btn btn--checkout" type="button" id="checkout-btn" disabled>Proceed to Checkout</button>
+      <p class="cart-drawer__note">Shipping &amp; taxes calculated at checkout.</p>
+    </footer>
+  </aside>
+
+  <!-- ======================= WISHLIST DRAWER ======================= -->
+  <div class="wishlist-overlay" id="wishlist-overlay" aria-hidden="true"></div>
+
+  <aside class="wishlist-drawer" id="wishlistDrawer" role="dialog" aria-modal="true" aria-labelledby="wishlist-title" tabindex="-1">
+    <header class="wishlist-drawer__head">
+      <h2 class="wishlist-drawer__title" id="wishlist-title">My Wishlist</h2>
+      <button class="wishlist-drawer__close" type="button" id="wishlist-close" aria-label="Close wishlist">
+        <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"></path></svg>
+      </button>
+    </header>
+
+    <div class="wishlist-drawer__items" id="wishlist-items"></div>
+
+    <footer class="wishlist-drawer__foot">
+      <p class="wishlist-drawer__note">Your selections are saved on this device.</p>
+    </footer>
+  </aside>
+
+  <!-- ======================= CHECKOUT MODAL ======================= -->
+  <div class="modal-overlay" id="checkout-overlay" aria-hidden="true"></div>
+
+  <div class="modal" id="checkout-modal" role="dialog" aria-modal="true" aria-labelledby="checkout-title" hidden>
+    <div class="modal__card">
+
+      <header class="modal__head">
+        <h2 class="modal__title" id="checkout-title">Secure Checkout</h2>
+        <button class="modal__close" type="button" id="checkout-close" aria-label="Close checkout">
+          <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"></path></svg>
+        </button>
+      </header>
+
+      <!-- Order summary -->
+      <div class="checkout-summary">
+        <div class="checkout-summary__row">
+          <span id="checkout-items-label">Items (0)</span>
+          <span id="checkout-summary-total">AED 0.00</span>
+        </div>
+      </div>
+
+      <!-- Form -->
+      <form class="checkout-form" id="checkout-form">
+        <div class="field">
+          <label class="field__label" for="cust-name">Customer Name</label>
+          <input class="field__input" id="cust-name" name="name" type="text" placeholder="e.g. Ahmed Al Farsi" autocomplete="name" required />
+        </div>
+
+        <div class="field">
+          <label class="field__label" for="cust-phone">Phone</label>
+          <input class="field__input" id="cust-phone" name="phone" type="tel" placeholder="e.g. +971 50 123 4567" autocomplete="tel" pattern="[+]?[0-9][0-9\s\-]{6,14}" required />
+        </div>
+
+        <div class="field">
+          <label class="field__label" for="cust-email">Email Address</label>
+          <input class="field__input" id="cust-email" name="email" type="email" placeholder="you@email.com" autocomplete="email" required />
+        </div>
+
+        <div class="field">
+          <label class="field__label" for="cust-address">Shipping Address (UAE &amp; Worldwide / India)</label>
+          <textarea class="field__input" id="cust-address" name="address" rows="3" placeholder="Street, City, State, Postal Code, Country — e.g. Jumeirah 1, Dubai, UAE or MG Road, Bengaluru 560001, India" autocomplete="street-address" required></textarea>
+        </div>
+
+        <fieldset class="field field--payments">
+          <legend class="field__label">Payment Options</legend>
+          <label class="pay-option">
+            <input type="radio" name="payment" value="card" />
+            <span class="pay-option__icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="5" width="20" height="14" rx="2.5"></rect><path d="M2 10h20M6 15h4"></path></svg>
+            </span>
+            <span class="pay-option__body">
+              <span class="pay-option__title">Online Payment</span>
+              <span class="pay-option__hint">Visa, Mastercard, Mada, AMEX</span>
+            </span>
+          </label>
+
+          <label class="pay-option">
+            <input type="radio" name="payment" value="cod" checked />
+            <span class="pay-option__icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"></circle><path d="M8 12l2.5 2.5L16 9.5"></path></svg>
+            </span>
+            <span class="pay-option__body">
+              <span class="pay-option__title">Cash on Delivery</span>
+              <span class="pay-option__hint">Pay when your order arrives</span>
+            </span>
+          </label>
+        </fieldset>
+
+        <button class="btn btn--checkout btn--checkout-block" type="submit">Place Order &mdash; <span id="checkout-submit-currency">AED</span> <span id="checkout-submit-total">0.00</span></button>
+      </form>
+
+      <!-- Success -->
+      <div class="checkout-success" id="checkout-success" hidden>
+        <span class="checkout-success__icon" aria-hidden="true">
+          <svg viewBox="0 0 24 24" width="34" height="34" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"></circle><path d="M8 12l2.5 2.5L16 9.5"></path></svg>
+        </span>
+        <h3 class="checkout-success__title">Order Placed</h3>
+        <p class="checkout-success__ref">Order <strong id="checkout-order-ref">LUREI-000000</strong></p>
+        <dl class="checkout-success__details">
+          <div><dt>Customer</dt><dd id="success-name">&mdash;</dd></div>
+          <div><dt>Phone</dt><dd id="success-phone">&mdash;</dd></div>
+          <div><dt>Email</dt><dd id="success-email">&mdash;</dd></div>
+          <div><dt>Address</dt><dd id="success-address">&mdash;</dd></div>
+          <div><dt>Payment</dt><dd id="success-payment">&mdash;</dd></div>
+          <div><dt>Total</dt><dd id="success-total">&mdash;</dd></div>
+        </dl>
+        <p class="checkout-success__note">Our team has received your order &mdash; download your official invoice PDF using the button below. We&#39;ll call you shortly to confirm delivery across the UAE.</p>
+        <button class="primary-btn" type="button" id="downloadPdfBtn">📥 Download Official Invoice (PDF)</button>
+        <button class="btn btn--outline" type="button" id="checkout-done">Continue Shopping</button>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- Scripts -->
+  <script src="script.js"></script>
+</body>
+</html>

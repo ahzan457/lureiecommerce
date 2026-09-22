@@ -1,0 +1,401 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <!-- Google Identity Services SDK — One-Tap & account sign-in -->
+  <script src="https://accounts.google.com/gsi/client" async defer></script>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="description" content="Contact LUREÍ Dubai — WhatsApp +971 52 530 3886, email lureiaccessories@gmail.com. Handcrafted fine jewellery from Dubai, UAE." />
+  <meta name="theme-color" content="#1A1A1A" />
+  <title>Contact Us — LUREÍ Fine Jewellery | Dubai, UAE</title>
+
+  <!-- Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,400;0,500;0,600;1,400;1,500&family=Plus+Jakarta+Sans:wght@300;400;500;600;700&display=swap" rel="stylesheet" />
+
+  <!-- Styles -->
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+
+  <!-- ======================= 1. TOP ANNOUNCEMENT BAR ======================= -->
+  <div class="announcement-bar" role="region" aria-label="Announcement">
+    <p class="announcement-bar__text">
+      Summer Sale: Up to <strong>70% OFF</strong> &nbsp;|&nbsp; Free Shipping across UAE over <strong>AED 250</strong>
+    </p>
+  </div>
+
+  <!-- ======================= 2. NAVBAR ======================= -->
+  <header class="navbar" role="banner">
+    <div class="container navbar__inner">
+
+      <!-- Brand logo -->
+      <a href="index.html" class="brand" aria-label="LUREÍ home">
+        <span class="brand__name">Lure<span class="brand__accent">í</span></span>
+        <span class="brand__tagline">Dubai &bull; S925 Silver</span>
+      </a>
+
+      <!-- Center navigation -->
+      <nav class="nav" aria-label="Primary navigation">
+        <ul class="nav__list">
+          <li class="nav__item"><a href="index.html" class="nav__link">Home</a></li>
+          <li class="nav__item"><a href="collections.html" class="nav__link">Collections</a></li>
+          <li class="nav__item"><a href="new-in.html" class="nav__link">New In</a></li>
+          <li class="nav__item"><a href="gift-cards.html" class="nav__link">Gift Cards</a></li>
+          <li class="nav__item"><a href="#" class="nav__link">About Us</a></li>
+        </ul>
+      </nav>
+
+      <!-- Right icon set -->
+      <div class="nav-actions" role="toolbar" aria-label="Account and search tools">
+        <button class="icon-btn" type="button" aria-label="Search">
+          <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <circle cx="11" cy="11" r="7"></circle><path d="M21 21l-4.35-4.35"></path>
+          </svg>
+        </button>
+        <button class="icon-btn nav-profile" id="nav-profile" type="button" aria-label="Your account">
+          <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <circle cx="12" cy="8" r="4"></circle><path d="M4 21c0-4 3.6-6 8-6s8 2 8 6"></path>
+          </svg>
+        </button>
+        <button class="icon-btn wishlist-icon" id="wishlist-open" type="button" aria-label="Open wishlist">
+          <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M12 21l-8.5-8.5a5.6 5.6 0 1 1 8.5-7.5 5.6 5.6 0 1 1 8.5 7.5L12 21z"></path>
+          </svg>
+          <span class="wishlist-badge is-hidden" data-wishlist-count="0">0</span>
+        </button>
+        <button class="icon-btn cart-btn" type="button" aria-label="Shopping bag, 0 items">
+          <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M6 7h12l1.5 13h-15L6 7z"></path><path d="M9 10V6a3 3 0 0 1 6 0v4"></path>
+          </svg>
+          <span class="cart-badge" data-cart-count="0">0</span>
+        </button>
+      </div>
+
+      <!-- Mobile menu trigger -->
+      <button class="nav-toggle" type="button" aria-label="Open menu" aria-expanded="false">
+        <span class="nav-toggle__bar"></span>
+        <span class="nav-toggle__bar"></span>
+        <span class="nav-toggle__bar"></span>
+      </button>
+
+    </div>
+  </header>
+
+  <main id="top">
+
+<!-- ======================= CONTACT ======================= -->
+    <section class="section contact-page" aria-labelledby="contact-title-page">
+      <div class="container">
+        <header class="section__head">
+          <h1 class="section__title" id="contact-title-page">Contact Us</h1>
+          <p class="section__lead">Reach LUREÍ Dubai instantly — WhatsApp, SMS, or email. We reply within 24 hours.</p>
+        </header>
+
+        <div class="contact-form__wrapper">
+          <form class="checkout-form contact-form" id="contact-form" data-lurei-contact onsubmit="return false;" novalidate>
+            <div class="field">
+              <label class="field__label" for="contact-name">YOUR NAME</label>
+              <input class="field__input" id="contact-name" name="name" type="text" placeholder="Your full name" autocomplete="name" required />
+            </div>
+
+            <div class="field">
+              <label class="field__label" for="contact-email">EMAIL ADDRESS</label>
+              <input class="field__input" id="contact-email" name="email" type="email" placeholder="you@email.com" autocomplete="email" required />
+            </div>
+
+            <div class="field">
+              <label class="field__label" for="contact-phone">PHONE NUMBER</label>
+              <input class="field__input" id="contact-phone" name="phone" type="tel" placeholder="+971 50 123 4567" autocomplete="tel" required />
+            </div>
+
+            <div class="field">
+              <label class="field__label" for="contact-message">MESSAGE</label>
+              <textarea class="field__input" id="contact-message" name="message" rows="5" placeholder="How can we help you?" required></textarea>
+            </div>
+
+            <button class="btn btn--checkout btn--checkout-block" type="submit">SEND MESSAGE</button>
+          </form>
+        </div>
+      </div>
+    </section>
+
+    <!-- ======================= FOOTER ======================= -->
+    <footer class="footer" role="contentinfo">
+      <div class="container footer__grid">
+
+        <div class="footer__col footer__col--newsletter">
+          <h3 class="footer__heading">Join the LUREÍ circle</h3>
+          <p class="footer__text">Receive early access to new drops, private sales &amp; styling notes.</p>
+          <form class="newsletter-form" id="newsletter-form" novalidate>
+            <input
+              class="footer__input"
+              type="text"
+              id="newsletter-name"
+              name="name"
+              placeholder="Your Name"
+              aria-label="Your Name"
+              required />
+            <div class="newsletter-form__row">
+              <input
+                class="footer__input"
+                type="email"
+                id="newsletter-email"
+                name="email"
+                placeholder="Your Email address"
+                aria-label="Your Email address"
+                required />
+              <button class="footer__submit" id="newsletter-submit" type="submit" aria-label="Subscribe">
+                <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M22 2L11 13"></path><path d="M22 2l-7 20-4-9-9-4z"></path></svg>
+              </button>
+            </div>
+          </form>
+          <p class="footer__note" id="newsletter-note" hidden>Thank you — welcome to LUREÍ.</p>
+        </div>
+
+        <nav class="footer__col" aria-label="Shop links">
+          <h3 class="footer__heading">Shop</h3>
+          <ul class="footer__links">
+            <li><a href="new-in.html" class="footer__link">New Arrivals</a></li>
+            <li><a href="collections.html" class="footer__link">All Jewellery</a></li>
+            <li><a href="collections.html?category=necklaces" class="footer__link">Necklaces</a></li>
+            <li><a href="collections.html?category=rings" class="footer__link">Rings</a></li>
+            <li><a href="collections.html?category=bracelets" class="footer__link">Bracelets</a></li>
+          </ul>
+        </nav>
+
+        <nav class="footer__col" aria-label="Company links">
+          <h3 class="footer__heading">Company</h3>
+          <ul class="footer__links">
+            <li><a href="about.html" class="footer__link">About Us</a></li>
+            <li><a href="contact.html" class="footer__link">Contact Us</a></li>
+            <li><a href="#stores" class="footer__link" data-open-service="stores">Customer Care</a></li>
+            <li><a href="about.html#faq-section" class="footer__link">FAQ</a></li>
+          </ul>
+        </nav>
+
+        <div class="footer__col footer__col--brand">
+          <a href="index.html" class="brand" aria-label="LUREÍ home">
+            <span class="brand__name brand__name--light">Lure<span class="brand__accent">í</span></span>
+            <span class="brand__tagline">Dubai &bull; S925 Silver</span>
+          </a>
+          <p class="footer__blurb">Fine jewellery for every moment — designed in Dubai, delivered across the Emirates.</p>
+<p class="footer__blurb">
+            <a href="mailto:lureiaccessories@gmail.com" class="footer__link">lureiaccessories@gmail.com</a><br />
+            <a href="https://wa.me/971525303886" class="footer__link">WhatsApp & SMS &mdash; +971 52 530 3886</a><br />
+            <a href="tel:+971525303886" class="footer__link">+971 52 530 3886</a>
+          </p>
+          <div class="footer__social" role="list" aria-label="Social media">
+            <a href="https://www.instagram.com/lurei.ae/" class="footer__social-link" aria-label="Instagram" role="listitem" target="_blank" rel="noopener noreferrer">
+              <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="3" width="18" height="18" rx="5"></rect><circle cx="12" cy="12" r="4"></circle><circle cx="17.2" cy="6.8" r="1"></circle></svg>
+            </a>
+            <a href="#" class="footer__social-link" aria-label="Facebook" role="listitem">
+              <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 8h3V5h-3a4 4 0 0 0-4 4v2H7v3h3v7h3v-7h3l1-3h-4V9a1 1 0 0 1 1-1z"></path></svg>
+            </a>
+            <a href="#" class="footer__social-link" aria-label="X (formerly Twitter)" role="listitem">
+              <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor" aria-hidden="true"><path d="M18.2 2H21l-6.4 7.3L22 22h-5.9l-4.6-6-5.3 6H2.5l6.9-7.9L2 2h6l4.1 5.5L18.2 2zm-1.1 18h1.6L7 3.9H5.3L17.1 20z"></path></svg>
+            </a>
+          </div>
+          <p class="footer__legal">&copy; <span data-year></span> LUREÍ &bull; Dubai, UAE. All rights reserved.</p>
+        </div>
+
+      </div>
+    </footer>
+
+  </main>
+
+  <!-- ======================= ACCOUNT AUTH MODAL ======================= -->
+  <div class="auth-modal" id="auth-modal" role="dialog" aria-modal="true" aria-labelledby="auth-title" aria-hidden="true" hidden>
+    <div class="auth-modal__card">
+      <header class="auth-modal__head">
+        <h2 class="auth-modal__title" id="auth-title">LUREÍ DUBAI &mdash; Account Access</h2>
+        <button class="auth-modal__close" type="button" id="auth-close" aria-label="Close account menu">
+          <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"></path></svg>
+        </button>
+      </header>
+
+      <div class="auth-modal__tabs" role="tablist" aria-label="Account options">
+        <button class="auth-tab is-active" type="button" role="tab" aria-selected="true" data-auth-panel="signin">Sign In</button>
+        <button class="auth-tab" type="button" role="tab" aria-selected="false" data-auth-panel="create">Create Free Account</button>
+      </div>
+
+      <section class="auth-panel is-active" id="auth-panel-signin" role="tabpanel">
+        <div class="auth-panel__google">
+          <div id="g_id_signin_wrap"></div>
+          <p class="auth-panel__divider"><span>or continue with email</span></p>
+        </div>
+        <form class="auth-form" id="auth-signin-form" novalidate>
+          <div class="field">
+            <label class="field__label" for="auth-signin-email">Email Address</label>
+            <input class="field__input auth-input" id="auth-signin-email" type="email" placeholder="you@email.com" autocomplete="email" required />
+          </div>
+          <div class="field">
+            <label class="field__label" for="auth-signin-password">Password</label>
+            <input class="field__input auth-input" id="auth-signin-password" type="password" placeholder="Enter your password" autocomplete="current-password" required />
+          </div>
+          <button class="btn btn--auth" type="submit">Login</button>
+        </form>
+      </section>
+
+      <section class="auth-panel" id="auth-panel-create" role="tabpanel" hidden>
+        <form class="auth-form" id="auth-create-form" novalidate>
+          <div class="field">
+            <label class="field__label" for="auth-create-name">Full Name</label>
+            <input class="field__input auth-input" id="auth-create-name" type="text" placeholder="Your full name" autocomplete="name" required />
+          </div>
+          <div class="field">
+            <label class="field__label" for="auth-create-email">Email Address</label>
+            <input class="field__input auth-input" id="auth-create-email" type="email" placeholder="you@email.com" autocomplete="email" required />
+          </div>
+          <div class="field">
+            <label class="field__label" for="auth-create-password">Password</label>
+            <input class="field__input auth-input" id="auth-create-password" type="password" placeholder="At least 6 characters" autocomplete="new-password" minlength="6" required />
+          </div>
+          <button class="btn btn--auth" type="submit">Create Account</button>
+        </form>
+      </section>
+
+      <button class="auth-guest" type="button" id="auth-guest">Continue as Guest</button>
+    </div>
+  </div>
+
+  <!-- ======================= CART DRAWER ======================= -->
+  <div class="cart-overlay" id="cart-overlay" aria-hidden="true"></div>
+
+  <aside class="cart-drawer" id="cart-drawer" role="dialog" aria-modal="true" aria-labelledby="cart-title" tabindex="-1">
+    <header class="cart-drawer__head">
+      <h2 class="cart-drawer__title" id="cart-title">Your Bag</h2>
+      <button class="cart-drawer__close" type="button" id="cart-close" aria-label="Close cart">
+        <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"></path></svg>
+      </button>
+    </header>
+
+    <div class="cart-drawer__items" id="cart-items"></div>
+
+    <footer class="cart-drawer__foot">
+      <div class="cart-drawer__subtotal">
+        <span class="cart-drawer__subtotal-label">Subtotal</span>
+        <span class="cart-drawer__subtotal-value" id="cart-subtotal">AED 0.00</span>
+      </div>
+      <button class="btn btn--checkout" type="button" id="checkout-btn" disabled>Proceed to Checkout</button>
+      <p class="cart-drawer__note">Shipping &amp; taxes calculated at checkout.</p>
+    </footer>
+  </aside>
+
+  <!-- ======================= WISHLIST DRAWER ======================= -->
+  <div class="wishlist-overlay" id="wishlist-overlay" aria-hidden="true"></div>
+
+  <aside class="wishlist-drawer" id="wishlistDrawer" role="dialog" aria-modal="true" aria-labelledby="wishlist-title" tabindex="-1">
+    <header class="wishlist-drawer__head">
+      <h2 class="wishlist-drawer__title" id="wishlist-title">My Wishlist</h2>
+      <button class="wishlist-drawer__close" type="button" id="wishlist-close" aria-label="Close wishlist">
+        <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"></path></svg>
+      </button>
+    </header>
+
+    <div class="wishlist-drawer__items" id="wishlist-items"></div>
+
+    <footer class="wishlist-drawer__foot">
+      <p class="wishlist-drawer__note">Your selections are saved on this device.</p>
+    </footer>
+  </aside>
+
+  <!-- ======================= CHECKOUT MODAL ======================= -->
+  <div class="modal-overlay" id="checkout-overlay" aria-hidden="true"></div>
+
+  <div class="modal" id="checkout-modal" role="dialog" aria-modal="true" aria-labelledby="checkout-title" hidden>
+    <div class="modal__card">
+
+      <header class="modal__head">
+        <h2 class="modal__title" id="checkout-title">Secure Checkout</h2>
+        <button class="modal__close" type="button" id="checkout-close" aria-label="Close checkout">
+          <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"></path></svg>
+        </button>
+      </header>
+
+      <!-- Order summary -->
+      <div class="checkout-summary">
+        <div class="checkout-summary__row">
+          <span id="checkout-items-label">Items (0)</span>
+          <span id="checkout-summary-total">AED 0.00</span>
+        </div>
+      </div>
+
+      <!-- Form -->
+      <form class="checkout-form" id="checkout-form">
+        <div class="field">
+          <label class="field__label" for="cust-name">Customer Name</label>
+          <input class="field__input" id="cust-name" name="name" type="text" placeholder="e.g. Ahmed Al Farsi" autocomplete="name" required />
+        </div>
+
+        <div class="field">
+          <label class="field__label" for="cust-phone">Phone</label>
+          <input class="field__input" id="cust-phone" name="phone" type="tel" placeholder="e.g. +971 50 123 4567" autocomplete="tel" pattern="[+]?[0-9][0-9\s\-]{6,14}" required />
+        </div>
+
+        <div class="field">
+          <label class="field__label" for="cust-email">Email Address</label>
+          <input class="field__input" id="cust-email" name="email" type="email" placeholder="you@email.com" autocomplete="email" required />
+        </div>
+
+        <div class="field">
+          <label class="field__label" for="cust-address">Shipping Address in UAE</label>
+          <textarea class="field__input" id="cust-address" name="address" rows="3" placeholder="Street, building, apartment — Dubai / Abu Dhabi / Sharjah..." autocomplete="street-address" required></textarea>
+        </div>
+
+        <fieldset class="field field--payments">
+          <legend class="field__label">Payment Options</legend>
+          <label class="pay-option">
+            <input type="radio" name="payment" value="card" />
+            <span class="pay-option__icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="5" width="20" height="14" rx="2.5"></rect><path d="M2 10h20M6 15h4"></path></svg>
+            </span>
+            <span class="pay-option__body">
+              <span class="pay-option__title">Online Payment</span>
+              <span class="pay-option__hint">Visa, Mastercard, Mada, AMEX</span>
+            </span>
+          </label>
+
+          <label class="pay-option">
+            <input type="radio" name="payment" value="cod" checked />
+            <span class="pay-option__icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"></circle><path d="M8 12l2.5 2.5L16 9.5"></path></svg>
+            </span>
+            <span class="pay-option__body">
+              <span class="pay-option__title">Cash on Delivery</span>
+              <span class="pay-option__hint">Pay when your order arrives</span>
+            </span>
+          </label>
+        </fieldset>
+
+        <button class="btn btn--checkout btn--checkout-block" type="submit">Place Order &mdash; AED <span id="checkout-submit-total">0.00</span></button>
+      </form>
+
+      <!-- Success -->
+      <div class="checkout-success" id="checkout-success" hidden>
+        <span class="checkout-success__icon" aria-hidden="true">
+          <svg viewBox="0 0 24 24" width="34" height="34" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"></circle><path d="M8 12l2.5 2.5L16 9.5"></path></svg>
+        </span>
+        <h3 class="checkout-success__title">Order Placed</h3>
+        <p class="checkout-success__ref">Order <strong id="checkout-order-ref">LUREI-000000</strong></p>
+        <dl class="checkout-success__details">
+          <div><dt>Customer</dt><dd id="success-name">&mdash;</dd></div>
+          <div><dt>Phone</dt><dd id="success-phone">&mdash;</dd></div>
+          <div><dt>Email</dt><dd id="success-email">&mdash;</dd></div>
+          <div><dt>Address</dt><dd id="success-address">&mdash;</dd></div>
+          <div><dt>Payment</dt><dd id="success-payment">&mdash;</dd></div>
+          <div><dt>Total</dt><dd id="success-total">&mdash;</dd></div>
+        </dl>
+        <p class="checkout-success__note">Our team has received your order &mdash; your invoice (<strong>LUREI_Order_Invoice.pdf</strong>) has been downloaded. We&#39;ll call you shortly to confirm delivery across the UAE.</p>
+        <button class="btn btn--outline" type="button" id="checkout-done">Continue Shopping</button>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- Scripts -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+  <script src="script.js"></script>
+</body>
+</html>
