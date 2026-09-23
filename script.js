@@ -74,7 +74,7 @@
    * so the shop works regardless of the saved file type.
    * ------------------------------------------------------------------ */
 const products = [
-    { id: 1, name: "Aura Golden Stud", price: "AED 25.00", category: "under-30", type: "earrings", image: "assets/products/aura-golden-stud", desc: "Textured gold aura stud earrings." },
+    { id: 1, name: "Aura Golden Stud", price: "AED 25.00", category: "under-30", type: "earrings", image: "assets/products/aura-golden-stud.jpg", desc: "Textured gold aura stud earrings." },
     { id: 2, name: "Cartier Inspired Bracelet", price: "AED 30.00", category: "under-30", type: "bracelets", image: "assets/products/cartier-inspired-bracelet", desc: "Luxury textured gold band bracelet." },
     { id: 3, name: "Crystal Ash Hoops", price: "AED 20.00", category: "under-30", type: "earrings", image: "assets/products/crystal-ash-hoops", desc: "Sparkling crystal ash luxury hoops." },
     { id: 4, name: "The Crystal Chain", price: "AED 30.00", category: "under-30", type: "necklace", image: "assets/products/crystal-chain", desc: "Minimal sparkling crystal accent silver chain." },
