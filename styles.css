@@ -5366,3 +5366,116 @@ box-shadow: -28px 0 70px -30px rgba(26, 26, 26, 0.4);
   }
 
 }
+/* =========================================================
+   LUREÍ — MOBILE NAVBAR: SHOW ALL 4 BUTTONS
+   ========================================================= */
+
+@media screen and (max-width: 768px) {
+
+  /* Header */
+  .navbar,
+  .navbar__inner,
+  .nav-container {
+    width: 100% !important;
+    max-width: 100% !important;
+    box-sizing: border-box !important;
+  }
+
+  .navbar__inner {
+    display: flex !important;
+    align-items: center !important;
+    justify-content: space-between !important;
+    padding: 10px 14px !important;
+    gap: 8px !important;
+  }
+
+  /* Logo area */
+  .brand,
+  .brand-logo,
+  .logo {
+    flex: 1 1 auto !important;
+    min-width: 0 !important;
+  }
+
+  /* 4 BUTTON CONTAINER */
+  .nav-actions {
+    display: flex !important;
+    align-items: center !important;
+    justify-content: flex-end !important;
+
+    /* IMPORTANT */
+    flex-shrink: 0 !important;
+    width: auto !important;
+    min-width: max-content !important;
+
+    gap: 8px !important;
+
+    visibility: visible !important;
+    opacity: 1 !important;
+  }
+
+  /* ALL 4 BUTTONS */
+  .nav-actions > *,
+  .nav-actions a,
+  .nav-actions button,
+  .nav-actions .icon-btn,
+  .nav-actions .wishlist-btn,
+  .nav-actions .cart-btn {
+    display: inline-flex !important;
+
+    width: 34px !important;
+    height: 34px !important;
+
+    min-width: 34px !important;
+    min-height: 34px !important;
+
+    flex: 0 0 34px !important;
+
+    align-items: center !important;
+    justify-content: center !important;
+
+    padding: 0 !important;
+    margin: 0 !important;
+
+    visibility: visible !important;
+    opacity: 1 !important;
+  }
+
+  /* Icons themselves */
+  .nav-actions svg,
+  .nav-actions svg * {
+    display: block !important;
+    visibility: visible !important;
+    opacity: 1 !important;
+  }
+
+}
+
+
+/* VERY SMALL PHONES */
+@media screen and (max-width: 380px) {
+
+  .navbar__inner {
+    padding-left: 10px !important;
+    padding-right: 10px !important;
+    gap: 4px !important;
+  }
+
+  .nav-actions {
+    gap: 5px !important;
+  }
+
+  .nav-actions > *,
+  .nav-actions a,
+  .nav-actions button,
+  .nav-actions .icon-btn,
+  .nav-actions .wishlist-btn,
+  .nav-actions .cart-btn {
+    width: 30px !important;
+    height: 30px !important;
+    min-width: 30px !important;
+    min-height: 30px !important;
+    flex-basis: 30px !important;
+  }
+
+}
