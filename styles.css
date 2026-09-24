@@ -5155,3 +5155,62 @@ box-shadow: -28px 0 70px -30px rgba(26, 26, 26, 0.4);
     display: block !important;
   }
 }
+/* ==========================================
+   FINAL EXACT MOBILE FIX FOR LUREÍ NAV & HERO
+   ========================================== */
+@media screen and (max-width: 768px) {
+  /* 1. Show Wishlist & Cart Icons in Mobile View */
+  .navbar__inner {
+    display: flex !important;
+    justify-content: space-between !important;
+    align-items: center !important;
+    padding: 10px 15px !important;
+  }
+
+  .nav-actions {
+    display: flex !important;
+    align-items: center !important;
+    gap: 12px !important;
+    visibility: visible !important;
+    opacity: 1 !important;
+  }
+
+  .nav-actions .icon-btn,
+  .nav-actions #wishlist-open,
+  .nav-actions .cart-btn {
+    display: inline-flex !important;
+    visibility: visible !important;
+    opacity: 1 !important;
+  }
+
+  /* Hide center nav list on mobile header bar */
+  .nav {
+    display: none;
+  }
+
+  /* 2. Hero Circle / Arch Image Exact Center Fix */
+  .hero__inner {
+    display: flex !important;
+    flex-direction: column !important;
+    align-items: center !important;
+    text-align: center !important;
+  }
+
+  .hero__visual {
+    width: 100% !important;
+    display: flex !important;
+    justify-content: center !important;
+    align-items: center !important;
+    margin: 20px auto 0 auto !important;
+  }
+
+  .hero__circle {
+    margin: 0 auto !important;
+    display: block !important;
+    float: none !important;
+  }
+
+  .hero__circle img, .hero-slide {
+    margin: 0 auto !important;
+  }
+}
