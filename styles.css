@@ -4827,3 +4827,33 @@ box-shadow: -28px 0 70px -30px rgba(26, 26, 26, 0.4);
     letter-spacing: 5px;
   }
 }
+/* DESKTOP VIEW */
+@media screen and (min-width: 1024px) {
+  .brand-grid-container {
+    display: grid;
+    grid-template-columns: repeat(6, 1fr);
+    gap: 30px;
+  }
+  .products-grid {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 25px;
+  }
+}
+
+/* MOBILE VIEW */
+@media screen and (max-width: 768px) {
+  body {
+    overflow-x: hidden;
+  }
+  .brand-grid-container {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 20px;
+  }
+  .products-grid {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 15px;
+  }
+}
