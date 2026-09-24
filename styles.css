@@ -5058,3 +5058,53 @@ box-shadow: -28px 0 70px -30px rgba(26, 26, 26, 0.4);
     height: auto !important;
   }
 }
+/* ==========================================
+   HEADER ALL ICONS & HERO IMAGE CENTER FIX
+   ========================================== */
+@media screen and (max-width: 768px) {
+  /* 1. Header Layout Fix & Show All Icons */
+  .header-actions, .nav-actions, .user-actions, .header__right {
+    display: flex !important;
+    align-items: center !important;
+    justify-content: flex-end !important;
+    gap: 10px !important;
+    visibility: visible !important;
+    opacity: 1 !important;
+  }
+
+  /* Force heart, cart, search, account icons to display */
+  .header-actions a, 
+  .header-actions button,
+  .icon-btn,
+  .wishlist-btn,
+  .cart-btn {
+    display: inline-flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    visibility: visible !important;
+    opacity: 1 !important;
+  }
+
+  /* 2. Hero Circular / Arch Image Exact Center Fix */
+  .hero-visual, 
+  .hero-image-container, 
+  .hero__image-wrapper,
+  .legacy-editorial__visual {
+    display: flex !important;
+    justify-content: center !important;
+    align-items: center !important;
+    margin-left: auto !important;
+    margin-right: auto !important;
+    width: 100% !important;
+    text-align: center !important;
+  }
+
+  .hero-visual img, 
+  .hero-image-container img, 
+  .hero__image-wrapper img,
+  .legacy-editorial__visual img {
+    margin: 0 auto !important;
+    display: block !important;
+    float: none !important;
+  }
+}
