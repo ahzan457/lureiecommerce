@@ -4940,3 +4940,21 @@ box-shadow: -28px 0 70px -30px rgba(26, 26, 26, 0.4);
     padding: 12px 20px !important;
   }
 }
+/* EXACT IMAGE ARCH FIT FOR MOBILE */
+  .legacy-editorial__visual {
+    width: 100% !important;
+    height: auto !important;
+    min-height: initial !important;
+    aspect-ratio: 4 / 5 !important;
+    overflow: hidden !important;
+    border-radius: 120px 120px 16px 16px !important;
+    margin: 0 auto 20px auto !important;
+  }
+
+  .legacy-editorial__visual img {
+    width: 100% !important;
+    height: 100% !important;
+    object-fit: cover !important;
+    object-position: center !important;
+    display: block !important;
+  }
