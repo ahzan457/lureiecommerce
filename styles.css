@@ -5214,3 +5214,155 @@ box-shadow: -28px 0 70px -30px rgba(26, 26, 26, 0.4);
     margin: 0 auto !important;
   }
 }
+/* =========================================================
+   LUREÍ — FINAL MOBILE NAVBAR + HERO CENTER FIX
+   ========================================================= */
+
+@media screen and (max-width: 768px) {
+
+  /* ---------- MOBILE HEADER ---------- */
+
+  .navbar,
+  .navbar__inner,
+  .nav-container {
+    width: 100% !important;
+    max-width: 100% !important;
+    display: flex !important;
+    align-items: center !important;
+    justify-content: space-between !important;
+    box-sizing: border-box !important;
+  }
+
+  .navbar__inner {
+    padding: 10px 16px !important;
+  }
+
+  /* Right-side icons */
+  .nav-actions,
+  .header-actions,
+  .nav-right,
+  .user-actions,
+  .header__right {
+    display: flex !important;
+    align-items: center !important;
+    justify-content: flex-end !important;
+    gap: 14px !important;
+    visibility: visible !important;
+    opacity: 1 !important;
+    flex-shrink: 0 !important;
+  }
+
+  /* Search / account / wishlist / cart buttons */
+  .nav-actions a,
+  .nav-actions button,
+  .header-actions a,
+  .header-actions button,
+  .nav-right a,
+  .nav-right button,
+  .user-actions a,
+  .user-actions button,
+  .header__right a,
+  .header__right button,
+  .icon-btn,
+  .wishlist-btn,
+  .cart-btn {
+    display: inline-flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    visibility: visible !important;
+    opacity: 1 !important;
+    flex-shrink: 0 !important;
+  }
+
+  /* Make SVG icons visible */
+  .nav-actions svg,
+  .header-actions svg,
+  .nav-right svg,
+  .user-actions svg,
+  .header__right svg,
+  .icon-btn svg {
+    display: block !important;
+    visibility: visible !important;
+    opacity: 1 !important;
+  }
+
+
+  /* ---------- MOBILE HERO ---------- */
+
+  .hero__inner {
+    width: 100% !important;
+    display: flex !important;
+    flex-direction: column !important;
+    align-items: center !important;
+    justify-content: center !important;
+    text-align: center !important;
+  }
+
+  .hero__visual {
+    width: 100% !important;
+    max-width: 100% !important;
+    display: flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    margin: 20px auto 0 !important;
+    padding: 20px 0 !important;
+    box-sizing: border-box !important;
+  }
+
+  /* Circle itself */
+  .hero__circle {
+    width: min(320px, 82vw) !important;
+    height: min(320px, 82vw) !important;
+    margin: 0 auto !important;
+    position: relative !important;
+    left: auto !important;
+    right: auto !important;
+    transform: none !important;
+    flex-shrink: 0 !important;
+  }
+
+  /* Image inside circle */
+  .hero__circle .hero-slide,
+  .hero-slide {
+    width: 100% !important;
+    height: 100% !important;
+    margin: 0 !important;
+    left: 0 !important;
+    right: auto !important;
+    top: 0 !important;
+    object-fit: cover !important;
+    object-position: center !important;
+  }
+
+}
+
+
+/* ---------- SMALL PHONES ---------- */
+
+@media screen and (max-width: 480px) {
+
+  .navbar__inner {
+    padding-left: 14px !important;
+    padding-right: 14px !important;
+  }
+
+  .nav-actions,
+  .header-actions,
+  .nav-right,
+  .user-actions,
+  .header__right {
+    gap: 10px !important;
+  }
+
+  .hero__visual {
+    margin-top: 15px !important;
+  }
+
+  .hero__circle {
+    width: 82vw !important;
+    height: 82vw !important;
+    max-width: 320px !important;
+    max-height: 320px !important;
+  }
+
+}
