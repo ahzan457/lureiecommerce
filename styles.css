@@ -4958,3 +4958,53 @@ box-shadow: -28px 0 70px -30px rgba(26, 26, 26, 0.4);
     object-position: center !important;
     display: block !important;
   }
+/* ==========================================
+   NAVBAR BUTTONS & BANNER IMAGE CENTER FIX
+   ========================================== */
+@media screen and (max-width: 768px) {
+  /* 1. Header / Navbar Layout Fix */
+  header, .navbar, .nav-container {
+    display: flex !important;
+    justify-content: space-between !important;
+    align-items: center !important;
+    padding: 10px 15px !important;
+    width: 100% !important;
+    box-sizing: border-box !important;
+  }
+
+  .logo, .brand-logo {
+    font-size: 1.2rem !important;
+    margin: 0 !important;
+  }
+
+  /* Show Nav Actions / Buttons on Mobile */
+  .nav-actions, .header-actions, .nav-right, .user-actions {
+    display: flex !important;
+    align-items: center !important;
+    gap: 12px !important;
+    visibility: visible !important;
+    opacity: 1 !important;
+  }
+
+  .nav-actions button, .nav-actions a, .header-actions a {
+    display: inline-block !important;
+    font-size: 0.85rem !important;
+  }
+
+  /* 2. Banner Arch Image Perfect Centering */
+  .hero-visual, .hero-image-container, .legacy-editorial__visual {
+    display: flex !important;
+    justify-content: center !important;
+    align-items: center !important;
+    margin: 0 auto 20px auto !important;
+    width: 100% !important;
+    max-width: 320px !important;
+  }
+
+  .hero-visual img, .hero-image-container img, .legacy-editorial__visual img {
+    margin: 0 auto !important;
+    display: block !important;
+    max-width: 100% !important;
+    height: auto !important;
+  }
+}
