@@ -9,9 +9,8 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@400;500;600;700&family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap" rel="stylesheet" />
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
-<script src="supabase-config.js"></script>
-<script src="admin-editor.js"></script>
-  <style>
+<script src="script.js"></script>
+<style>
     :root {
       --bg: #FAF8F5;
       --bg-alt: #F7F4EF;
@@ -1851,14 +1850,13 @@
       /* ---------------- Access guard ----------------
          Two modes:
 
-         Supabase configured — the real gate. RLS returns no order row
-         without a valid authenticated token, so clearing sessionStorage
-         gains nothing here.
+         Backend configured — the real gate. Every admin action in Code.gs
+         re-checks ADMIN_API_KEY server-side, so clearing sessionStorage
+         only hides the page; it cannot read or write a Sheet.
 
-         Supabase not configured — dev mode. The sessionStorage flag is
-         then the only check available, which is why the login page
-         refuses to consult its fallback credential while the backend is
-         live. */
+         Backend not configured — dev mode. The sessionStorage flag is then
+         the only check available, which is why the login page refuses to
+         consult its fallback credential while the backend is live. */
       const backend = window.LureiBackend || null;
       const backendReady = !!(backend && typeof backend.fetchOrders === "function" && backend.isConfigured());
       const ADMIN_SESSION_KEY = "adminLoggedIn";
@@ -1885,7 +1883,7 @@
       const ORDERS_STORAGE_KEY = "lurei_orders";
 
       /* ---------------- Live storefront editor ----------------
-         admin-editor.js owns the flag and the catalogue store. Setting it
+         script.js owns the flag and the catalogue store. Setting it
          here (rather than an inline onclick) keeps a private-mode failure
          from aborting the navigation, because the link still carries
          ?editMode=true. */
@@ -1970,7 +1968,10 @@
           currencyAtOrder: row.currency_at_order,
           status: row.status,
           createdAt: row.created_at,
+          /* The Sheets row id. Code.gs resolves either this or order_id, so a
+             delete or status change works with whichever one is present. */
           _rowId: row.id,
+          completedAt: row.completed_at,
         });
       };
 

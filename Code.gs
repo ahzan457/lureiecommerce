@@ -33,11 +33,13 @@ const SHEETS = {
 };
 
 const ADMIN_ACTIONS = {
+  signIn: "signIn",
   addProduct: "addProduct",
   updateProduct: "updateProduct",
   updateStock: "updateStock",
   updateOrderStatus: "updateOrderStatus",
   deleteOrder: "deleteOrder",
+  archiveOrder: "archiveOrder",
 };
 
 const prop = (name, fallback) => {
@@ -109,6 +111,16 @@ function doPost(e) {
       return json_({ ok: true, order: insertOrder_(payload.order || payload) });
     }
 
+    /* Credential check, not the shared key: admin-login.html has to be able to
+       prove who it is *before* it holds anything. */
+    if (action === ADMIN_ACTIONS.signIn) {
+      try {
+        return json_({ ok: true, session: signIn_(payload.email, payload.password) });
+      } catch (error) {
+        return json_({ error: String((error && error.message) || error) }, 401);
+      }
+    }
+
     if (!isAdmin_(payload.apiKey)) {
       return json_({ error: "Unauthorized" }, 401);
     }
@@ -124,6 +136,8 @@ function doPost(e) {
         return json_({ ok: true, order: updateOrderStatus_(payload.orderId, payload.status) });
       case ADMIN_ACTIONS.deleteOrder:
         return json_({ ok: true, deleted: deleteOrder_(payload.orderId) });
+      case ADMIN_ACTIONS.archiveOrder:
+        return json_({ ok: true, order: archiveOrder_(payload.order || payload) });
       default:
         return json_({ error: "Unknown action: " + action }, 400);
     }
@@ -136,14 +150,57 @@ function isAdmin_(key) {
   return !!ADMIN_API_KEY && String(key || "") === ADMIN_API_KEY;
 }
 
+/* ------------------------------------------------------------------ *
+ * Sign-in
+ *
+ * Google Apps Script has no user store of its own, so the operator's
+ * credentials are Script Properties: ADMIN_EMAIL and ADMIN_PASSWORD. Both
+ * are compared here rather than in the browser, so the password never
+ * needs to appear in any page.
+ *
+ * Set them under Project Settings > Script Properties.
+ * ------------------------------------------------------------------ */
+function signIn_(email, password) {
+  const expectedEmail = prop("ADMIN_EMAIL", "");
+  const expectedPassword = prop("ADMIN_PASSWORD", "");
+
+  if (!expectedEmail || !expectedPassword) {
+    throw new Error("Admin sign-in is not configured (ADMIN_EMAIL / ADMIN_PASSWORD).");
+  }
+
+  const emailOk = constantTimeEquals_(
+    String(email || "").trim().toLowerCase(),
+    expectedEmail.trim().toLowerCase()
+  );
+  const passwordOk = constantTimeEquals_(String(password || ""), expectedPassword);
+
+  if (!emailOk || !passwordOk) throw new Error("Invalid admin credentials.");
+
+  return {
+    role: "admin",
+    email: expectedEmail,
+    issuedAt: new Date().toISOString(),
+  };
+}
+
+/** Length-independent comparison so a wrong password cannot be narrowed down
+ *  one character at a time by timing. */
+function constantTimeEquals_(a, b) {
+  if (a.length !== b.length) return false;
+  let diff = 0;
+  for (let i = 0; i < a.length; i++) {
+    diff |= a.charCodeAt(i) ^ b.charCodeAt(i);
+  }
+  return diff === 0;
+}
+
 /** GAS web apps ignore response headers, so the payload carries the status. */
 function json_(body, status) {
+  /* Must be stamped before stringify - assigning afterwards left __status out
+     of the JSON entirely, so unwrapGas() never saw it. */
+  if (status) body.__status = status;
   const out = ContentService.createTextOutput(JSON.stringify(body));
   out.setMimeType(ContentService.MimeType.JSON);
-  if (status) {
-    // Surfaced inside the body for fetch() callers that cannot read a status.
-    body.__status = status;
-  }
   return out;
 }
 
@@ -351,12 +408,25 @@ function insertOrder_(order) {
   });
 }
 
+/** The dashboard holds two identifiers per order: the Sheet row id and the
+ *  storefront's own order_id. Accept either so a delete or a status change
+ *  works whichever one the caller has to hand. */
+function findOrderRow_(sheet, id) {
+  if (id === undefined || id === null || id === "") return null;
+  const byId = findRowBy_(sheet, "id", id);
+  if (byId) return byId;
+  return findRowBy_(sheet, "order_id", id);
+}
+
 function updateOrderStatus_(orderId, status) {
   return withLock_(() => {
     const sheet = sheet_(SHEETS.ORDERS);
-    const row = findRowBy_(sheet, "order_id", orderId);
+    const row = findOrderRow_(sheet, orderId);
     if (!row) throw new Error("No order with id " + orderId);
     setCell_(sheet, row, "status", status || "pending");
+    if (status === "delivered" || status === "completed") {
+      setCell_(sheet, row, "completed_at", new Date().toISOString());
+    }
     return { orderId: orderId, status: status };
   });
 }
@@ -364,10 +434,52 @@ function updateOrderStatus_(orderId, status) {
 function deleteOrder_(orderId) {
   return withLock_(() => {
     const sheet = sheet_(SHEETS.ORDERS);
-    const row = findRowBy_(sheet, "order_id", orderId);
+    const row = findOrderRow_(sheet, orderId);
     if (!row) throw new Error("No order with id " + orderId);
     sheet.deleteRow(row);
     return true;
+  });
+}
+
+/** Files a delivered sale onto the Orders tab. Upserted on order_id so filing the
+ *  same sale twice updates the one entry instead of duplicating it, which is
+ *  what the Monthly Report groups on. */
+function archiveOrder_(order) {
+  return withLock_(() => {
+    const sheet = sheet_(SHEETS.ORDERS);
+    const orderId = order.orderId || order.order_id || "";
+    if (!orderId) throw new Error("archiveOrder needs an orderId.");
+
+    const existing = findRowBy_(sheet, "order_id", orderId);
+    const now = new Date().toISOString();
+    const record = {
+      id: order.id || (existing ? undefined : Utilities.getUuid()),
+      order_id: orderId,
+      customer_name: order.customerName || order.customer_name || "Unknown",
+      phone: order.phone || "",
+      email: order.email || "",
+      address: order.address || "",
+      payment: order.payment || "",
+      payment_method: order.paymentMethod || order.payment_method || "",
+      requested_delivery_date: order.requestedDeliveryDate || order.requested_delivery_date || "",
+      items: typeof (order.items || "") === "string"
+        ? order.items
+        : JSON.stringify(order.items || []),
+      total_aed: Number(order.totalAED || order.total_aed) || 0,
+      currency_at_order: order.currencyAtOrder || order.currency_at_order || "AED",
+      status: "delivered",
+      created_at: order.createdAt || order.created_at || now,
+      completed_at: order.completedAt || order.completed_at || now,
+    };
+
+    if (existing) {
+      Object.keys(record).forEach((key) => {
+        if (record[key] === undefined) return;
+        setCell_(sheet, existing, key, record[key]);
+      });
+      return Object.assign({ row: existing }, record);
+    }
+    return Object.assign({ row: appendObject_(sheet, record) }, record);
   });
 }
 

@@ -120,18 +120,27 @@
     }
   };
 
-  const ADMIN_SESSION_KEY = "lurei_gas_admin_session";
+  const ADMIN_SESSION_KEY = "adminLoggedIn";
+  const SESSION_DETAIL_KEY = "lurei_gas_admin_session";
 
   const gasBackend = {
     isConfigured: () => gasConfigured(),
 
-    /* No server session exists in a shared-key model, so the flag written by
-       admin-login.html is the authority for "is this an admin session" — the
-       same shape the previous Supabase session check had. */
+    /* A shared-key backend has no server session, so the flag admin-login.html
+       writes is the authority for "is this an admin" - the same shape the
+       Supabase session check had. Both admin pages hardcode "adminLoggedIn",
+       so that stays the single source of truth and must hold the literal
+       string "true" (the dashboard guard compares with ===). */
     getSession: () => {
       if (!gasConfigured()) return null;
       try {
-        return JSON.parse(sessionStorage.getItem(ADMIN_SESSION_KEY) || "null");
+        const flag = sessionStorage.getItem(ADMIN_SESSION_KEY);
+        if (flag !== "true") return null;
+        try {
+          return JSON.parse(sessionStorage.getItem(SESSION_DETAIL_KEY) || "null") || { role: "admin" };
+        } catch {
+          return { role: "admin" };
+        }
       } catch {
         return null;
       }
@@ -139,7 +148,20 @@
     clearSession: () => {
       try {
         sessionStorage.removeItem(ADMIN_SESSION_KEY);
+        sessionStorage.removeItem(SESSION_DETAIL_KEY);
       } catch {}
+    },
+
+    /* Verifies the operator against the ADMIN_EMAIL / ADMIN_PASSWORD Script
+       Properties in Code.gs. On success it raises the same "adminLoggedIn"
+       flag the dashboard already guards on. */
+    signIn: async (email, password) => {
+      const data = await gasRequest("signIn", { email, password }, true);
+      try {
+        sessionStorage.setItem(ADMIN_SESSION_KEY, "true");
+        sessionStorage.setItem(SESSION_DETAIL_KEY, JSON.stringify(data || { role: "admin" }));
+      } catch {}
+      return data;
     },
 
     /** Shopper checkout — public by design, so this sends no api key. */
@@ -161,13 +183,26 @@
       return Array.isArray(data.orders) ? data.orders : [];
     },
 
+    /* The dashboard's isDelivered() treats "delivered" and "completed" as the
+       same state, so the filter has to as well. */
     fetchCompletedOrders: async () => {
       const orders = await gasBackend.fetchOrders();
-      return orders.filter((o) => String(o.status || "").toLowerCase() === "completed");
+      return orders.filter((o) => {
+        const status = String(o.status || "").toLowerCase();
+        return status === "completed" || status === "delivered";
+      });
     },
 
     updateOrder: (orderId, status) => gasRequest("updateOrderStatus", { orderId, status }),
-    archiveOrder: (orderId, status) => gasRequest("updateOrderStatus", { orderId, status: status || "archived" }),
+
+    /* Called with the whole order record, not an id — the dashboard assembles
+       it from the row. Filing means an upsert onto the completed log keyed by
+       order_id, so filing the same sale twice updates the one entry. */
+    archiveOrder: (record) => {
+      const order = record && typeof record === "object" ? record : { orderId: String(record) };
+      return gasRequest("archiveOrder", { order });
+    },
+
     deleteOrder: (orderId) => gasRequest("deleteOrder", { orderId }),
     deleteCompletedOrder: (orderId) => gasRequest("deleteOrder", { orderId }),
 
@@ -183,7 +218,7 @@
   /* ------------------------------------------------------------------ *
    * 1c. Live storefront editor + master catalogue store
    * ------------------------------------------------------------------ *
-   * Formerly admin-editor.js, merged here so the project ships a single
+   * Formerly a standalone admin-editor.js, merged here so the project ships a single
    * script. It must stay ABOVE the boot sequence below: the boot reads
    * window.LureiCatalogue synchronously, and this block is what defines it.
    *
@@ -329,6 +364,11 @@
    * uploads (base64) and remote URLs are kept, and the rest of the stored entry
    * survives, because discarding it would also lose price/stock edits. */
   var DEAD_IMAGE_FOLDER = "assets/images/products/";
+
+  /* Product photos live in exactly one folder. A second folder used to hold part
+   * of the catalogue, so an admin editing the catalogue could point a card at a
+   * sibling path that does not ship alongside the page. */
+  var CANONICAL_IMAGE_FOLDER = "assets/products/";
   var REMOTE_IMAGE = /^(https?:|data:|\/\/)/i;
 
   var sanitizeImage = function (value) {
@@ -337,6 +377,14 @@
     if (!trimmed) return "";
     if (REMOTE_IMAGE.test(trimmed)) return trimmed;
     if (trimmed.replace(/^\.\//, "").indexOf(DEAD_IMAGE_FOLDER) === 0) return "";
+
+    /* Normalises any in-tree path onto assets/products/ so both the built-in
+     * dataset and admin edits resolve the same way. */
+    var relative = trimmed.replace(/^\.\//, "");
+    if (relative.indexOf("assets/") === 0) {
+      var leaf = relative.split("/").pop();
+      if (leaf) return CANONICAL_IMAGE_FOLDER + leaf;
+    }
     return trimmed;
   };
 
@@ -1595,7 +1643,7 @@ var onGridClick = function (event) {
    * 2. Fallback product catalogue (local asset mirror)
    * ------------------------------------------------------------------ *
    * Images live in exactly two folders: ./assets/products/ (main
-   * catalogue) and ./assets/new product/ (later arrivals). There is NO
+   * catalogue) and ./assets/products/ (later arrivals). There is NO
    * assets/images/products/ directory - an earlier build rewrote paths
    * into one, so every card 404'd and fell back to its placeholder.
    * Each entry below points at a file that exists, with its real casing,
@@ -1639,21 +1687,21 @@ var onGridClick = function (event) {
     { id: 35, name: "Luna Layered Ear Cuffs Set", price: "AED 25.00", category: "under-30", type: "earrings", image: "./assets/products/Luna-layered-ear cuffs-set.jpg", desc: "Layered luxury gold ear cuff set." },
     { id: 36, name: "Honey Dew Hoops", price: "AED 18.00", originalPrice: "AED 30.00", category: "under-30", type: "earrings", image: "./assets/products/honey-dew-hoops.jpg", desc: "Crystal honeydew teardrop hoop earrings." },
     { id: 37, name: "Half Hoop Drops", price: "AED 30.00", originalPrice: "AED 60.00", category: "under-30", type: "earrings", image: "./assets/products/half-hoop-drops.jpg", desc: "Convertible half hoop drop earrings." },
-    { id: 38, name: "Boho Chain Earring", price: "AED 35.00", category: "under-50", type: "earrings", image: "./assets/new product/Boho chain earring.jpg", desc: "Free-spirited boho chain earrings in a refined silver finish." },
-    { id: 39, name: "Chain Loop Earrings", price: "AED 30.00", category: "under-30", type: "earrings", image: "./assets/new product/Chain loop earrings.jpg", desc: "Sculptural linked loop earrings with a sleek modern edge." },
-    { id: 40, name: "Chunky Silver Hoops", price: "AED 32.00", category: "under-50", type: "earrings", image: "./assets/new product/chuncy-silver-hoops.jpg", desc: "Bold chunky silver hoops with a lustrous satin finish." },
+    { id: 38, name: "Boho Chain Earring", price: "AED 35.00", category: "under-50", type: "earrings", image: "./assets/products/boho-chain-earring.jpg", desc: "Free-spirited boho chain earrings in a refined silver finish." },
+    { id: 39, name: "Chain Loop Earrings", price: "AED 30.00", category: "under-30", type: "earrings", image: "./assets/products/chain-loop-earrings.jpg", desc: "Sculptural linked loop earrings with a sleek modern edge." },
+    { id: 40, name: "Chunky Silver Hoops", price: "AED 32.00", category: "under-50", type: "earrings", image: "./assets/products/chuncy-silver-hoops.jpg", desc: "Bold chunky silver hoops with a lustrous satin finish." },
     { id: 41, name: "Crystal Cherry Hoops", price: "AED 25.00", category: "under-30", type: "earrings", image: "./assets/products/crystal-cherry-hoops.jpg", desc: "Cherry red crystal drop earrings with luminous glass accents." },
-    { id: 42, name: "Dual Tone Oval Drops", price: "AED 40.00", category: "under-50", type: "earrings", image: "./assets/new product/Dual tone oval drops earrings.jpg", desc: "Dual-tone oval drop earrings blending warm and cool metallics." },
-    { id: 43, name: "Garnet Glare Asymmetrical Drops", price: "AED 55.00", category: "under-100", type: "earrings", image: "./assets/new product/garnet-glare-asymmetrical-drops.jpg", desc: "Asymmetrical garnet drops with a rich ruby glare finish." },
-    { id: 44, name: "Garnet Glare Drops", price: "AED 55.00", category: "under-100", type: "earrings", image: "./assets/new product/garnet-glare-drops.jpg", desc: "Classic garnet glare drop earrings with deep crimson stones." },
-    { id: 45, name: "Garnet Glare Hollow Drops", price: "AED 60.00", category: "under-100", type: "earrings", image: "./assets/new product/garnet-glare-hollow-drops.jpg", desc: "Hollow garnet drop earrings in a radiant crimson tone." },
-    { id: 46, name: "Green Crescent Earrings", price: "AED 38.00", category: "under-50", type: "earrings", image: "./assets/new product/Green crescent earrings.jpg", desc: "Emerald crescent earrings with a soft vintage glow." },
+    { id: 42, name: "Dual Tone Oval Drops", price: "AED 40.00", category: "under-50", type: "earrings", image: "./assets/products/dual-tone-oval-drops-earrings.jpg", desc: "Dual-tone oval drop earrings blending warm and cool metallics." },
+    { id: 43, name: "Garnet Glare Asymmetrical Drops", price: "AED 55.00", category: "under-100", type: "earrings", image: "./assets/products/garnet-glare-asymmetrical-drops.jpg", desc: "Asymmetrical garnet drops with a rich ruby glare finish." },
+    { id: 44, name: "Garnet Glare Drops", price: "AED 55.00", category: "under-100", type: "earrings", image: "./assets/products/garnet-glare-drops.jpg", desc: "Classic garnet glare drop earrings with deep crimson stones." },
+    { id: 45, name: "Garnet Glare Hollow Drops", price: "AED 60.00", category: "under-100", type: "earrings", image: "./assets/products/garnet-glare-hollow-drops.jpg", desc: "Hollow garnet drop earrings in a radiant crimson tone." },
+    { id: 46, name: "Green Crescent Earrings", price: "AED 38.00", category: "under-50", type: "earrings", image: "./assets/products/green-crescent-earrings.jpg", desc: "Emerald crescent earrings with a soft vintage glow." },
     { id: 47, name: "Luna Layered Ear Cuffs Set", price: "AED 35.00", category: "under-50", type: "earrings", image: "./assets/products/Luna-layered-ear cuffs-set.jpg", desc: "Layered lunar ear cuff set in polished gold tones." },
-    { id: 48, name: "Rainbow Crystal Drops", price: "AED 52.00", category: "under-100", type: "earrings", image: "./assets/new product/rainbow-crystal-drops.jpg", desc: "Iridescent rainbow crystal drop earrings with prismatic sparkle." },
-    { id: 49, name: "Bianca Handcuff", price: "AED 45.00", category: "under-50", type: "bracelets", image: "./assets/new product/bianca-handcuff.jpg", desc: "Sculptural bianca handcuff bracelet in a statement silhouette." },
-    { id: 50, name: "Cleopatra Handcuff", price: "AED 65.00", category: "under-100", type: "bracelets", image: "./assets/new product/cleopatra-handcuff.jpg", desc: "Regal cleopatra handcuff bracelet with bold engraved detailing." },
-    { id: 51, name: "Kelly Gold Handcuff", price: "AED 48.00", category: "under-50", type: "bracelets", image: "./assets/new product/kelly-gold-handcuff.jpg", desc: "Opulent gold handcuff bracelet with a flawless mirror shine." },
-    { id: 52, name: "Melted Gold Handcuff", price: "AED 65.00", category: "under-100", type: "bracelets", image: "./assets/new product/melted-gold-handcuff.jpg", desc: "Artistic melted gold handcuff bracelet in a fluid luxury form." },
+    { id: 48, name: "Rainbow Crystal Drops", price: "AED 52.00", category: "under-100", type: "earrings", image: "./assets/products/rainbow-crystal-drops.jpg", desc: "Iridescent rainbow crystal drop earrings with prismatic sparkle." },
+    { id: 49, name: "Bianca Handcuff", price: "AED 45.00", category: "under-50", type: "bracelets", image: "./assets/products/bianca-handcuff.jpg", desc: "Sculptural bianca handcuff bracelet in a statement silhouette." },
+    { id: 50, name: "Cleopatra Handcuff", price: "AED 65.00", category: "under-100", type: "bracelets", image: "./assets/products/cleopatra-handcuff.jpg", desc: "Regal cleopatra handcuff bracelet with bold engraved detailing." },
+    { id: 51, name: "Kelly Gold Handcuff", price: "AED 48.00", category: "under-50", type: "bracelets", image: "./assets/products/kelly-gold-handcuff.jpg", desc: "Opulent gold handcuff bracelet with a flawless mirror shine." },
+    { id: 52, name: "Melted Gold Handcuff", price: "AED 65.00", category: "under-100", type: "bracelets", image: "./assets/products/melted-gold-handcuff.jpg", desc: "Artistic melted gold handcuff bracelet in a fluid luxury form." },
 ];
 
   /* ------------------------------------------------------------------ *
@@ -1671,7 +1719,7 @@ var onGridClick = function (event) {
    * lets the browser pick the first file that actually loads.
    * ------------------------------------------------------------------ */
   const PRODUCT_IMAGE_DIR = "./assets/products/";
-  const PRODUCT_IMAGE_DIR_ALT = "./assets/new product/";
+  const PRODUCT_IMAGE_DIR_ALT = "./assets/products/";
   const PRODUCT_IMAGE_FALLBACK = "./assets/products/aura-golden-stud.jpg";
 
   /** "Aura Golden Stud" -> "aura-golden-stud" */
@@ -3935,7 +3983,7 @@ Thank you!`;
   /* ------------------------------------------------------------------ *
    * 10. Boot
    * ------------------------------------------------------------------ */
-  /* The storefront editor (admin-editor.js) layers locally owned changes
+  /* The storefront editor (defined above) layers locally owned changes
      over whichever defaults are used here, so admin edits survive a page
      reload and are never discarded by a Google Sheets refresh. */
   const catalogueStore = window.LureiCatalogue || null;
@@ -3944,38 +3992,58 @@ Thank you!`;
     seedCatalogue(catalogueStore ? catalogueStore.resolve(defaults) : defaults);
   };
 
+  /* admin-dashboard.html and admin-login.html load this same bundle purely for
+     the catalogue store and the backend client - neither carries storefront
+     markup. Every storefront-only binding below is gated on this. */
+  const hasStorefrontMarkup = () =>
+    !!document.querySelector(
+      ".cart-drawer, #cart-drawer, #products-container, #collections-container"
+    );
+
   (async () => {
-    bindFilters();
-    bindCollectionTools();
-    bindLoadMore();
-    bindCurrencySwitcher();
-    syncCurrencySelectors();
-    renderPriceFilterOptions();
-
-    const activeParams = new URLSearchParams(window.location.search);
-    const selectedCat = activeParams.get("category");
-    if (selectedCat && Object.prototype.hasOwnProperty.call(FILTERS, selectedCat)) {
-      activeFilter = selectedCat;
-    }
-
     const defaults = normalizeProducts(products);
     if (catalogueStore && typeof catalogueStore.setDefaults === "function") catalogueStore.setDefaults(defaults);
 
-    applyCatalogue(defaults);
-    applyFilter(activeFilter);
-    renderCartItems();
-    resetCheckoutView();
+    const isStorefront = hasStorefrontMarkup();
 
-    /* Keeps this tab in step with the admin tab and with any other tab that
-       the store change came from. */
-    if (catalogueStore && typeof catalogueStore.subscribe === "function") {
-      catalogueStore.subscribe(() => applyCatalogue(defaults));
+    /* Mock-first: the built-in catalogue paints before the Sheet is consulted,
+       so a slow or unconfigured backend never delays the storefront. */
+    if (isStorefront) {
+      bindFilters();
+      bindCollectionTools();
+      bindLoadMore();
+      bindCurrencySwitcher();
+      syncCurrencySelectors();
+      renderPriceFilterOptions();
+
+      const activeParams = new URLSearchParams(window.location.search);
+      const selectedCat = activeParams.get("category");
+      if (selectedCat && Object.prototype.hasOwnProperty.call(FILTERS, selectedCat)) {
+        activeFilter = selectedCat;
+      }
+
+      applyCatalogue(defaults);
+      applyFilter(activeFilter);
+      renderCartItems();
+      resetCheckoutView();
+
+      /* Keeps this tab in step with the admin tab and with any other tab that
+         the store change came from. */
+      if (catalogueStore && typeof catalogueStore.subscribe === "function") {
+        catalogueStore.subscribe(() => applyCatalogue(defaults));
+      }
     }
 
     try {
       const live = await fetchFromSheets();
       if (live && live.length) {
-        applyCatalogue(live);
+        /* The storefront re-renders; the admin pages only need the store to
+           hand the dashboard its refreshed list. */
+        if (isStorefront) {
+          applyCatalogue(live);
+        } else if (catalogueStore && typeof catalogueStore.setDefaults === "function") {
+          catalogueStore.setDefaults(live);
+        }
         console.info("LUREÍ products loaded from Google Sheets.");
       }
     } catch (error) {
