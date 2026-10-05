@@ -42,7 +42,7 @@
   box-sizing: border-box;
 }
 
-html {
+body:not(.admin-page) {
   scroll-behavior: smooth;
 }
 
@@ -51,7 +51,7 @@ html {
   -moz-osx-font-smoothing: grayscale;
 }
 
-body {
+body:not(.admin-page) {
   font-family: var(--font-sans);
   font-weight: 400;
   font-size: 1rem;
@@ -93,22 +93,22 @@ body {
   will-change: transform, opacity;
 }
 
-img {
+body:not(.admin-page) img {
   display: block;
   max-width: 100%;
   height: auto;
 }
 
-a {
+body:not(.admin-page) a {
   color: inherit;
   text-decoration: none;
 }
 
-ul {
+body:not(.admin-page) ul {
   list-style: none;
 }
 
-button {
+body:not(.admin-page) button {
   font-family: inherit;
   cursor: pointer;
   background: none;
@@ -119,26 +119,26 @@ button {
 /* Fluid, silky hover transitions — transform/opacity only for movement
    (compositor-friendly), with short paint-only passes for colour states.
    Layout properties (width/height/margin/top) are never animated. */
-a,
-button,
-input,
-select,
-textarea,
-label,
-img,
-.btn,
-.icon-btn,
-.nav__link,
-.footer__social-link,
-.footer__link,
-.product-card,
-.wishlist-heart,
-.pay-option,
-.nav-toggle,
-.currency-toggle,
-.collection-price__select,
-.pagination__btn,
-.cart-drawer__item {
+body:not(.admin-page) a,
+body:not(.admin-page) button,
+body:not(.admin-page) input,
+body:not(.admin-page) select,
+body:not(.admin-page) textarea,
+body:not(.admin-page) label,
+body:not(.admin-page) img,
+body:not(.admin-page) .btn,
+body:not(.admin-page) .icon-btn,
+body:not(.admin-page) .nav__link,
+body:not(.admin-page) .footer__social-link,
+body:not(.admin-page) .footer__link,
+body:not(.admin-page) .product-card,
+body:not(.admin-page) .wishlist-heart,
+body:not(.admin-page) .pay-option,
+body:not(.admin-page) .nav-toggle,
+body:not(.admin-page) .currency-toggle,
+body:not(.admin-page) .collection-price__select,
+body:not(.admin-page) .pagination__btn,
+body:not(.admin-page) .cart-drawer__item {
   transition:
     transform 0.25s cubic-bezier(0.16, 1, 0.3, 1),
     opacity 0.25s ease,
@@ -198,7 +198,7 @@ img,
 }
 
 /* Brand */
-.brand {
+body:not(.admin-page) .brand {
   display: inline-flex;
   flex-direction: column;
   align-items: center;
@@ -206,7 +206,7 @@ img,
   flex-shrink: 0;
 }
 
-.brand__name {
+body:not(.admin-page) .brand__name {
   font-family: var(--font-sans);
   font-weight: 300;
   font-size: 1.5rem;
@@ -215,7 +215,7 @@ img,
   color: var(--color-ink);
 }
 
-.brand__accent {
+body:not(.admin-page) .brand__accent {
   color: var(--color-gold);
   font-weight: 400;
 }
@@ -1061,11 +1061,11 @@ img,
 }
 
 /* Product search + price filter — force luxury font inheritance */
-.collection-search__input,
-.collection-price__select,
-.collection-price__label,
-input,
-select {
+body:not(.admin-page) .collection-search__input,
+body:not(.admin-page) .collection-price__select,
+body:not(.admin-page) .collection-price__label,
+body:not(.admin-page) input,
+body:not(.admin-page) select {
   font-family: inherit !important;
 }
 
@@ -3302,12 +3302,12 @@ box-shadow: -28px 0 70px -30px rgba(26, 26, 26, 0.4);
 }
 
 /* Form fields */
-.field {
+body:not(.admin-page) .field {
   display: block;
   margin-bottom: 1.1rem;
 }
 
-.field__label {
+body:not(.admin-page) .field__label {
   display: block;
   font-size: 0.68rem;
   font-weight: 600;
@@ -3317,7 +3317,7 @@ box-shadow: -28px 0 70px -30px rgba(26, 26, 26, 0.4);
   margin-bottom: 0.45rem;
 }
 
-.field__input {
+body:not(.admin-page) .field__input {
   width: 100%;
   padding: 0.8rem 1rem;
   font-family: inherit;
@@ -3331,11 +3331,11 @@ box-shadow: -28px 0 70px -30px rgba(26, 26, 26, 0.4);
   resize: vertical;
 }
 
-.field__input::placeholder {
+body:not(.admin-page) .field__input::placeholder {
   color: #ADA69A;
 }
 
-.field__input:focus {
+body:not(.admin-page) .field__input:focus {
   border-color: var(--color-gold);
   box-shadow: 0 0 0 3px rgba(212, 175, 55, 0.14);
 }
@@ -3365,18 +3365,18 @@ box-shadow: -28px 0 70px -30px rgba(26, 26, 26, 0.4);
   color: #6E695F;
 }
 
-input[type="date"].field__input {
+body:not(.admin-page) input[type="date"].field__input {
   font-family: var(--sans);
   color: #1C1B1A;
 }
 
-input[type="date"].field__input::-webkit-calendar-picker-indicator {
+body:not(.admin-page) input[type="date"].field__input::-webkit-calendar-picker-indicator {
   cursor: pointer;
   opacity: 0.55;
   transition: opacity 0.2s ease;
 }
 
-input[type="date"].field__input::-webkit-calendar-picker-indicator:hover {
+body:not(.admin-page) input[type="date"].field__input::-webkit-calendar-picker-indicator:hover {
   opacity: 1;
 }
 

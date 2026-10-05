@@ -177,6 +177,13 @@
       return unwrapGas(await payload.json());
     },
 
+    /** Public: this is the catalogue the storefront renders from. */
+    fetchProducts: async () => {
+      if (!gasConfigured()) throw new Error("APPS_SCRIPT_URL not configured");
+      const data = unwrapGas(await gasRequest("products"));
+      return Array.isArray(data.products) ? data.products : [];
+    },
+
     fetchOrders: async () => {
       if (!gasConfigured()) return [];
       const data = unwrapGas(await gasRequest("orders", null, true));
@@ -3943,41 +3950,15 @@ Thank you!`;
   /* ------------------------------------------------------------------ *
    * 9. Data loading (Google Sheets via Apps Script; mock-first)
    * ------------------------------------------------------------------ */
+  /* Goes through the shared backend client rather than building its own URL, so
+     there is a single place that knows the Apps Script action contract. */
   const fetchFromSheets = async () => {
-    const endpoint = CONFIG.APPS_SCRIPT_URL.trim();
-
-    if (!endpoint) {
-      throw new Error("APPS_SCRIPT_URL not configured — using fallback catalogue.");
+    const raw = await window.LureiBackend.fetchProducts();
+    const products = normalizeProducts(raw);
+    if (!products.length) {
+      throw new Error("Sheets API returned no usable products.");
     }
-
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), CONFIG.REQUEST_TIMEOUT_MS);
-
-    try {
-      const response = await fetch(endpoint, {
-        method: "GET",
-        cache: "no-store",
-        signal: controller.signal,
-        headers: { Accept: "application/json" },
-      });
-
-      if (!response.ok) {
-        throw new Error(`Google Apps Script responded with HTTP ${response.status}`);
-      }
-
-      const payload = await response.json();
-      const products = normalizeProducts(
-        Array.isArray(payload) ? payload : payload.products ?? payload.data ?? []
-      );
-
-      if (!products.length) {
-        throw new Error("Sheets API returned no usable products.");
-      }
-
-      return products;
-    } finally {
-      clearTimeout(timer);
-    }
+    return products;
   };
 
   /* ------------------------------------------------------------------ *
