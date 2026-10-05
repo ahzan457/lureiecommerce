@@ -537,7 +537,11 @@ body:not(.admin-page) .brand__accent {
   transform: translateX(4px);
 }
 
-/* Hero visual — arch image over smooth circle */
+/* Hero visual - rectangular banner frame.
+   Was a 580px circle with border-radius:50%, which cropped five of the seven
+   banners (portrait source ratios 0.67-0.81) into an oval. The banners are
+   now a plain rectangle and fill it edge to edge via object-fit:cover, so no
+   near-white placeholder shows through at the bottom. */
 .hero__visual {
   position: relative;
   display: flex;
@@ -549,33 +553,36 @@ body:not(.admin-page) .brand__accent {
 
 .hero__circle {
   position: relative;
-  width: 580px;
-  height: 580px;
+  width: 100%;
+  max-width: 580px;
+  min-height: 450px;
+  /* 1:1 reproduces the original 580/450/320 square footprint at every
+     breakpoint - the frame changed shape, not size. */
   aspect-ratio: 1 / 1;
   background: var(--color-circle);
-  border-radius: 50% !important;
-  overflow: hidden !important;
+  border-radius: 4px;
+  overflow: hidden;
   box-shadow: 0 25px 50px -12px rgba(184, 134, 11, 0.12), 0 0 40px rgba(212, 175, 55, 0.15), 0 0 0 1px rgba(212, 175, 55, 0.15);
 }
 
 @media (min-width: 992px) {
   .hero__circle {
-    width: 580px !important;
-    height: 580px !important;
+    max-width: 580px;
+    min-height: 580px;
   }
 }
 
 @media (min-width: 481px) and (max-width: 991px) {
   .hero__circle {
-    width: 450px !important;
-    height: 450px !important;
+    max-width: 450px;
+    min-height: 450px;
   }
 }
 
 @media (max-width: 480px) {
   .hero__circle {
-    width: 320px !important;
-    height: 320px !important;
+    max-width: 320px;
+    min-height: 320px;
   }
 }
 
@@ -586,7 +593,7 @@ body:not(.admin-page) .brand__accent {
   height: 100%;
   object-fit: cover;
   object-position: center;
-  border-radius: 50%;
+  border-radius: 0;
   image-rendering: -webkit-optimize-contrast;
   opacity: 0;
   transition: opacity 0.8s ease-in-out;
@@ -603,19 +610,24 @@ body:not(.admin-page) .brand__accent {
 }
 
 .hero__frame img {
+  display: block;
   width: 100%;
+  height: 100%;
+  min-height: 450px;
   aspect-ratio: 3 / 3.7;
   object-fit: cover;
-  border-radius: 999px 999px var(--radius-media) var(--radius-media);
+  object-position: center;
+  border-radius: 4px;
   filter: drop-shadow(0 26px 40px rgba(26, 26, 26, 0.18));
 }
 
-/* Hero right — The LURÉI Legacy story arch card */
+/* Hero right — The LUREÍ Legacy story card (unused in markup; kept rectangular
+   to match the other panels) */
 .hero__legacy {
   width: min(420px, 82%);
   background-color: #1A1A1A;
   color: #FFFFFF;
-  border-radius: 200px 200px 0 0;
+  border-radius: 4px;
   padding: 32px 24px;
   text-align: center;
   overflow: hidden;
@@ -705,12 +717,15 @@ body:not(.admin-page) .brand__accent {
   gap: clamp(2rem, 6vw, 5rem);
 }
 
+/* Story card - was an arch (border-radius: 200px 200px 0 0). The source photo
+   is landscape 1653x951, so the arched top plus a portrait aspect-ratio was
+   cropping it into a narrow tombstone. Rectangular frame, same footprint. */
 .legacy-editorial__visual {
   margin: 0;
   position: relative;
   overflow: hidden;
   aspect-ratio: 4 / 4.6;
-  border-radius: 200px 200px 0 0;
+  border-radius: 4px;
   border: 1px solid rgba(212, 175, 55, 0.35);
   box-shadow: 0 30px 60px -34px rgba(26, 26, 26, 0.45);
 }
