@@ -3237,7 +3237,7 @@ const stockLabelFor = (count) => (count === 1 ? "ONLY 1 LEFT" : `ONLY ${count} L
       }
     }
 
-    /* Mirror the order into the shared Supabase table so it reaches the
+    /* Mirror the order into the shared Google Sheet so it reaches the
        admin dashboard on any device, not just this browser.
 
        Deliberately not awaited: the shopper has already paid and the
@@ -3248,11 +3248,11 @@ const stockLabelFor = (count) => (count === 1 ? "ONLY 1 LEFT" : `ONLY ${count} L
       window.LureiBackend.insertOrder(orderRecord)
         .then((result) => {
           if (result && result.skipped && result.reason === "not-configured") {
-            console.info("[Orders] Supabase not configured; order kept in localStorage only.");
+            console.info("[Orders] Apps Script not configured; order kept in localStorage only.");
           }
         })
         .catch((uploadError) => {
-          console.warn("[Orders] Supabase upload failed:", uploadError && uploadError.message);
+          console.warn("[Orders] Sheet upload failed:", uploadError && uploadError.message);
           /* The local copy already exists, so the order is not lost — but
              the admin will not see it, so tell the shopper. */
           if (typeof showLureiToast === "function") {
