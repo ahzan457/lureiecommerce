@@ -32,11 +32,17 @@
     SMS_WEBHOOK_URL: "https://api.brevo.com/v3/sms", // SMS alert API — sends to +971525303886 on inquiries/orders
   };
 
-  /* Brevo v3 — welcome emails on newsletter signup (Transactional v3 API key) */
+/* Brevo v3 — welcome emails on newsletter signup (Transactional v3 API key) */
   const BREVO_CONFIG = {
     endpoint: "https://api.brevo.com/v3/smtp/email",
-    
+    apiKey: "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",
   };
+
+  /* Formspree — newsletter subscriber delivery straight to
+     lureiaccessories@gmail.com. TODO: paste your Formspree form ID
+     (e.g. "xyzab", used as https://formspree.io/f/xyzab) to enable it.
+     When empty, the handler falls back to the Brevo welcome email. */
+  const FORMSPREE_FORM_ID = "";
 
   /* SMS alert to the boutique — Brevo v3 SMS (same API key as email). No-op when
      no endpoint is configured. Silently resolves on failure (best-effort alert). */
@@ -52,6 +58,7 @@
           "api-key": BREVO_CONFIG.apiKey,
         },
         body: JSON.stringify({
+        
           type: "transactional",
           unicodeEnabled: true,
           sender: "LUREI",
@@ -68,71 +75,134 @@
   /* ------------------------------------------------------------------ *
    * 2. Fallback product catalogue (local asset mirror)
    * ------------------------------------------------------------------ *
-   * Product images are mapped strictly to local folder paths under
-   * `assets/products/` WITHOUT a file extension. script.js automatically
-   * resolves the real extension by trying (.png, .jpg, .jpeg) in order,
-   * so the shop works regardless of the saved file type.
+   * Images live in exactly two folders: ./assets/products/ (main
+   * catalogue) and ./assets/new product/ (later arrivals). There is NO
+   * assets/images/products/ directory - an earlier build rewrote paths
+   * into one, so every card 404'd and fell back to its placeholder.
+   * Each entry below points at a file that exists, with its real casing,
+   * because static hosts are case-sensitive.
    * ------------------------------------------------------------------ */
-  const products = [
-    { id: 1, name: "Aura Golden Stud", price: "AED 25.00", category: "under-30", type: "earrings", image: "assets/products/aura-golden-stud", desc: "Textured gold aura stud earrings." },
-    { id: 2, name: "Cartier Inspired Bracelet", price: "AED 30.00", category: "under-30", type: "bracelets", image: "assets/products/cartier-inspired-bracelet", desc: "Luxury textured gold band bracelet." },
-    { id: 3, name: "Crystal Ash Hoops", price: "AED 20.00", category: "under-30", type: "earrings", image: "assets/products/crystal-ash-hoops", desc: "Sparkling crystal ash luxury hoops." },
-    { id: 4, name: "The Crystal Chain", price: "AED 30.00", category: "under-30", type: "necklace", image: "assets/products/crystal-chain", desc: "Minimal sparkling crystal accent silver chain." },
-    { id: 5, name: "Crystal Cherry Hoops", price: "AED 20.00", category: "under-30", type: "earrings", image: "assets/products/crystal-cherry-hoops", desc: "Vibrant cherry red crystal drop hoop earrings." },
-    { id: 6, name: "Golden Nova Mini Hoops", price: "AED 15.00", originalPrice: "AED 20.00", category: "under-30", type: "earrings", image: "assets/products/golden-nova-mini-hoops", desc: "Mini golden starburst huggie hoops." },
-    { id: 7, name: "Golden Bamboo Drops", price: "AED 30.00", category: "under-30", type: "earrings", image: "assets/products/golden-bamboo-drops", desc: "Structured bamboo textured gold drop earrings." },
-    { id: 8, name: "Lavender Bloom", price: "AED 24.00", category: "under-30", type: "ring", image: "assets/products/lavender-bloom", desc: "Lavender crystals in rose gold accents." },
-    { id: 9, name: "Melted Metal Prism", price: "AED 30.00", category: "under-30", type: "earrings", image: "assets/products/melted-metal-prism", desc: "Melted metal prism in gold luxury finish." },
-    { id: 10, name: "Pearl Petals Drops", price: "AED 45.00", category: "under-50", type: "earrings", image: "assets/products/pearl-petals-drops", desc: "Lustrous pearl petal cluster drop earrings." },
-    { id: 11, name: "Petal Stud", price: "AED 20.00", category: "under-30", type: "earrings", image: "assets/products/Petal stud", desc: "Delicate flower petal stud earrings." },
-    { id: 12, name: "Red Stone Hoops", price: "AED 20.00", category: "under-30", type: "earrings", image: "assets/products/red-stone-hoops", desc: "Ruby red stone retro hoop collection." },
-    { id: 13, name: "Retro Red Hoops", price: "AED 45.00", category: "under-50", type: "earrings", image: "assets/products/retro-red-hoops", desc: "Ruby red accent vintage drop hoops." },
-    { id: 14, name: "Sapphire Retro Hoops", price: "AED 30.00", category: "under-30", type: "earrings", image: "assets/products/sapphire-retro-hoops", desc: "Deep sapphire stone retro hoops." },
-    { id: 15, name: "Screw Oval Bracelet", price: "AED 35.00", category: "under-50", type: "bracelets", image: "assets/products/Screw oval bracelet", desc: "Minimalist luxury screw oval gold bangles." },
-    { id: 16, name: "Seashell Toggle Chain", price: "AED 40.00", category: "under-50", type: "necklace", image: "assets/products/seashell-toggle-chain", desc: "Elegant gold toggle chain with seashell charm." },
-    { id: 17, name: "Serene Heart Pendant", price: "AED 45.00", category: "under-50", type: "necklace", image: "assets/products/serene-heart-pendant", desc: "Toggle chain with dual chains and vintage heart." },
-    { id: 18, name: "Silver Selen Bangles", price: "AED 35.00", category: "under-50", type: "bracelets", image: "assets/products/Silver selen bangles", desc: "Sculptural wave silver selen bangle bracelet." },
-    { id: 19, name: "Silver Loop Studs", price: "AED 25.00", category: "under-30", type: "earrings", image: "assets/products/Silver-Loop-studs", desc: "Minimalist luxury silver loop stud earrings." },
-    { id: 20, name: "The Eternal Love", price: "AED 35.00", category: "under-50", type: "necklace", image: "assets/products/the-eternal-love", desc: "Vintage puffy heart pendant with a classic link." },
-    { id: 21, name: "The Fourth Stone Pendant", price: "AED 30.00", category: "under-30", type: "necklace", image: "assets/products/the-fourth-stone-pendant", desc: "Minimalist single stone gold pendant chain." },
-    { id: 22, name: "The Sapphire Heart Pendant", price: "AED 30.00", category: "under-30", type: "necklace", image: "assets/products/the-sapphire-heart-pendant", desc: "Deep sapphire stone heart gold pendant." },
-    { id: 23, name: "Verdant Bloom", price: "AED 28.00", category: "under-30", type: "ring", image: "assets/products/verdant-bloom", desc: "Emerald green floral accent statement piece." },
-    { id: 24, name: "Vintage Shine", price: "AED 32.00", category: "under-50", type: "watch", image: "assets/products/Vintage shine", desc: "Celestial gold coin pendant chain." },
-    { id: 25, name: "Winter Bloom", price: "AED 28.00", category: "under-30", type: "rings", image: "assets/products/winter-bloom", desc: "Textured silver crystal statement ring." },
-    { id: 26, name: "Zorei Zircon", price: "AED 25.00", category: "under-30", type: "rings", image: "assets/products/zorei-zircon", desc: "Solitaire olive zircon gemstone gold ring." },
-    { id: 27, name: "Melted Metal Chain (in Gold)", price: "AED 130.00", category: "under-150", type: "necklace", image: "assets/products/melted-metal-chain-gold", desc: "Gold glided artistic statement collection chain." },
-    { id: 28, name: "Melting Metal Chain (Silver)", price: "AED 130.00", category: "under-150", type: "necklace", image: "assets/products/melting-metal-chain-silver", desc: "Silver glided statement collection chain." },
-    { id: 29, name: "Pearl Layered Pendant", price: "AED 90.00", originalPrice: "AED 130.00", category: "under-100", type: "necklace", image: "assets/products/pearl-layered-pendant", desc: "Classic elegant design with tear drop pearl layers." },
-    { id: 30, name: "Golden Luna Mini Hoops", price: "AED 18.00", originalPrice: "AED 25.00", category: "under-30", type: "earrings", image: "assets/products/golden-luna-mini-hoops", desc: "Gold mini huggie hoops." },
-    { id: 31, name: "Golden Hexa Mini Hoops", price: "AED 15.00", category: "under-30", type: "earrings", image: "assets/products/golden-hexa-mini-hoops", desc: "Hexagonal textured gold mini hoops." },
-    { id: 32, name: "Golden Crystal Retro Hoops", price: "AED 20.00", originalPrice: "AED 30.00", category: "under-30", type: "earrings", image: "assets/products/golden-crystal-retro-hoops", desc: "Yellow sparkling crystal retro drop hoops." },
-    { id: 33, name: "Wine Drop Hoops", price: "AED 18.00", originalPrice: "AED 30.00", category: "under-30", type: "earrings", image: "assets/products/wine-drop-hoops", desc: "Vibrant wine red drop hoop earrings." },
-    { id: 34, name: "Rosè Mini Hoops", price: "AED 15.00", category: "under-30", type: "earrings", image: "assets/products/rose-mini-hoops", desc: "Asymmetrical rose mini huggie hoops." },
-    { id: 35, name: "Luna Layered Ear Cuffs Set", price: "AED 25.00", category: "under-30", type: "earrings", image: "assets/products/Luna layered ear cuffs set", desc: "Layered luxury gold ear cuff set." },
-    { id: 36, name: "Honey Dew Hoops", price: "AED 18.00", originalPrice: "AED 30.00", category: "under-30", type: "earrings", image: "assets/products/honey-dew-hoops", desc: "Crystal honeydew teardrop hoop earrings." },
-    { id: 37, name: "Half Hoop Drops", price: "AED 30.00", originalPrice: "AED 60.00", category: "under-30", type: "earrings", image: "assets/products/half-hoop-drops", desc: "Convertible half hoop drop earrings." },
-
-    { id: 38, name: "Boho Chain Earring", price: "AED 35.00", category: "under-50", type: "earrings", image: "assets/new product/Boho chain earring", desc: "Free-spirited boho chain earrings in a refined silver finish." },
-    { id: 39, name: "Chain Loop Earrings", price: "AED 30.00", category: "under-30", type: "earrings", image: "assets/new product/Chain loop earrings", desc: "Sculptural linked loop earrings with a sleek modern edge." },
-    { id: 40, name: "Chunky Silver Hoops", price: "AED 32.00", category: "under-50", type: "earrings", image: "assets/new product/chuncy-silver-hoops", desc: "Bold chunky silver hoops with a lustrous satin finish." },
-    { id: 41, name: "Crystal Cherry Hoops", price: "AED 25.00", category: "under-30", type: "earrings", image: "assets/new product/crystal-cherry-hoops", desc: "Cherry red crystal drop earrings with luminous glass accents." },
-    { id: 42, name: "Dual Tone Oval Drops", price: "AED 40.00", category: "under-50", type: "earrings", image: "assets/new product/Dual tone oval drops earrings", desc: "Dual-tone oval drop earrings blending warm and cool metallics." },
-    { id: 43, name: "Garnet Glare Asymmetrical Drops", price: "AED 55.00", category: "under-100", type: "earrings", image: "assets/new product/garnet-glare-asymmetrical-drops", desc: "Asymmetrical garnet drops with a rich ruby glare finish." },
-    { id: 44, name: "Garnet Glare Drops", price: "AED 55.00", category: "under-100", type: "earrings", image: "assets/new product/garnet-glare-drops", desc: "Classic garnet glare drop earrings with deep crimson stones." },
-    { id: 45, name: "Garnet Glare Hollow Drops", price: "AED 60.00", category: "under-100", type: "earrings", image: "assets/new product/garnet-glare-hollow-drops", desc: "Hollow garnet drop earrings in a radiant crimson tone." },
-    { id: 46, name: "Green Crescent Earrings", price: "AED 38.00", category: "under-50", type: "earrings", image: "assets/new product/Green crescent earrings", desc: "Emerald crescent earrings with a soft vintage glow." },
-    { id: 47, name: "Luna Layered Ear Cuffs Set", price: "AED 35.00", category: "under-50", type: "earrings", image: "assets/new product/Luna layered ear cuffs set", desc: "Layered lunar ear cuff set in polished gold tones." },
-    { id: 48, name: "Rainbow Crystal Drops", price: "AED 52.00", category: "under-100", type: "earrings", image: "assets/new product/rainbow-crystal-drops", desc: "Iridescent rainbow crystal drop earrings with prismatic sparkle." },
-    { id: 49, name: "Bianca Handcuff", price: "AED 45.00", category: "under-50", type: "bracelets", image: "assets/new product/bianca-handcuff", desc: "Sculptural bianca handcuff bracelet in a statement silhouette." },
-    { id: 50, name: "Cleopatra Handcuff", price: "AED 65.00", category: "under-100", type: "bracelets", image: "assets/new product/cleopatra-handcuff", desc: "Regal cleopatra handcuff bracelet with bold engraved detailing." },
-    { id: 51, name: "Kelly Gold Handcuff", price: "AED 48.00", category: "under-50", type: "bracelets", image: "assets/new product/kelly-gold-handcuff", desc: "Opulent gold handcuff bracelet with a flawless mirror shine." },
-    { id: 52, name: "Melted Gold Handcuff", price: "AED 65.00", category: "under-100", type: "bracelets", image: "assets/new product/melted-gold-handcuff", desc: "Artistic melted gold handcuff bracelet in a fluid luxury form." },
-  ];
+ const products = [
+    { id: 1, name: "Aura Golden Stud", price: "AED 25.00", category: "under-30", type: "earrings", image: "./assets/products/aura-golden-stud.jpg", desc: "Textured gold aura stud earrings." },
+    { id: 2, name: "Cartier Inspired Bracelet", price: "AED 30.00", category: "under-30", type: "bracelets", image: "./assets/products/cartier-inspired-bracelet.jpg", desc: "Luxury textured gold band bracelet." },
+    { id: 3, name: "Crystal Ash Hoops", price: "AED 20.00", category: "under-30", type: "earrings", image: "./assets/products/crystal-ash-hoops.jpg", desc: "Sparkling crystal ash luxury hoops." },
+    { id: 4, name: "The Crystal Chain", price: "AED 30.00", category: "under-30", type: "necklace", image: "./assets/products/crystal-chain.jpg", desc: "Minimal sparkling crystal accent silver chain." },
+    { id: 5, name: "Crystal Cherry Hoops", price: "AED 20.00", category: "under-30", type: "earrings", image: "./assets/products/crystal-cherry-hoops.jpg", desc: "Vibrant cherry red crystal drop hoop earrings." },
+    { id: 6, name: "Golden Nova Mini Hoops", price: "AED 15.00", originalPrice: "AED 20.00", category: "under-30", type: "earrings", image: "./assets/products/golden-nova-mini-hoops.jpg", desc: "Mini golden starburst huggie hoops." },
+    { id: 7, name: "Golden Bamboo Drops", price: "AED 30.00", category: "under-30", type: "earrings", image: "./assets/products/golden-bamboo-drops.jpg", desc: "Structured bamboo textured gold drop earrings." },
+    { id: 8, name: "Lavender Bloom", price: "AED 24.00", category: "under-30", type: "ring", image: "./assets/products/lavender-bloom.jpg", desc: "Lavender crystals in rose gold accents." },
+    { id: 9, name: "Melted Metal Prism", price: "AED 30.00", category: "under-30", type: "earrings", image: "./assets/products/melted-metal-prism.jpg", desc: "Melted metal prism in gold luxury finish." },
+    { id: 10, name: "Pearl Petals Drops", price: "AED 45.00", category: "under-50", type: "earrings", image: "./assets/products/pearl-petals-drops.jpg", desc: "Lustrous pearl petal cluster drop earrings." },
+    { id: 11, name: "Petal Stud", price: "AED 20.00", category: "under-30", type: "earrings", image: "./assets/products/Petal-stud.jpg", desc: "Delicate flower petal stud earrings." },
+    { id: 12, name: "Red Stone Hoops", price: "AED 20.00", category: "under-30", type: "earrings", image: "./assets/products/red-stone-hoops.jpg", desc: "Ruby red stone retro hoop collection." },
+    { id: 13, name: "Retro Red Hoops", price: "AED 45.00", category: "under-50", type: "earrings", image: "./assets/products/retro-red-hoops.jpg", desc: "Ruby red accent vintage drop hoops." },
+    { id: 14, name: "Sapphire Retro Hoops", price: "AED 30.00", category: "under-30", type: "earrings", image: "./assets/products/sapphire-retro-hoops.jpg", desc: "Deep sapphire stone retro hoops." },
+    { id: 15, name: "Screw Oval Bracelet", price: "AED 35.00", category: "under-50", type: "bracelets", image: "./assets/products/Screw-oval bracelet.jpg", desc: "Minimalist luxury screw oval gold bangles." },
+    { id: 16, name: "Seashell Toggle Chain", price: "AED 40.00", category: "under-50", type: "necklace", image: "./assets/products/seashell-toggle-chain.jpg", desc: "Elegant gold toggle chain with seashell charm." },
+    { id: 17, name: "Serene Heart Pendant", price: "AED 45.00", category: "under-50", type: "necklace", image: "./assets/products/serene-heart-pendant.jpg", desc: "Toggle chain with dual chains and vintage heart." },
+    { id: 18, name: "Silver Selen Bangles", price: "AED 35.00", category: "under-50", type: "bracelets", image: "./assets/products/Silver-selen bangles.jpg", desc: "Sculptural wave silver selen bangle bracelet." },
+    { id: 19, name: "Silver Loop Studs", price: "AED 25.00", category: "under-30", type: "earrings", image: "./assets/products/Silver-Loop-studs.jpg", desc: "Minimalist luxury silver loop stud earrings." },
+    { id: 20, name: "The Eternal Love", price: "AED 35.00", category: "under-50", type: "necklace", image: "./assets/products/the-eternal-love.jpg", desc: "Vintage puffy heart pendant with a classic link." },
+    { id: 21, name: "The Fourth Stone Pendant", price: "AED 30.00", category: "under-30", type: "necklace", image: "./assets/products/the-fourth-stone-pendant.jpg", desc: "Minimalist single stone gold pendant chain." },
+    { id: 22, name: "The Sapphire Heart Pendant", price: "AED 30.00", category: "under-30", type: "necklace", image: "./assets/products/the-sapphire-heart-pendant.jpg", desc: "Deep sapphire stone heart gold pendant." },
+    { id: 23, name: "Verdant Bloom", price: "AED 28.00", category: "under-30", type: "ring", image: "./assets/products/verdant-bloom.jpg", desc: "Emerald green floral accent statement piece." },
+    { id: 24, name: "Vintage Shine", price: "AED 32.00", category: "under-50", type: "watch", image: "./assets/products/Vintage-shine.jpg", desc: "Celestial gold coin pendant chain." },
+    { id: 25, name: "Winter Bloom", price: "AED 28.00", category: "under-30", type: "rings", image: "./assets/products/winter-bloom.jpg", desc: "Textured silver crystal statement ring." },
+    { id: 26, name: "Zorei Zircon", price: "AED 25.00", category: "under-30", type: "rings", image: "./assets/products/zorei-zircon.jpg", desc: "Solitaire olive zircon gemstone gold ring." },
+    { id: 27, name: "Melted Metal Chain (in Gold)", price: "AED 130.00", category: "under-150", type: "necklace", image: "./assets/products/melted-metal-chain-gold.jpg", desc: "Gold glided artistic statement collection chain." },
+    { id: 28, name: "Melting Metal Chain (Silver)", price: "AED 130.00", category: "under-150", type: "necklace", image: "./assets/products/melting-metal-chain-silver.jpg", desc: "Silver glided statement collection chain." },
+    { id: 29, name: "Pearl Layered Pendant", price: "AED 90.00", originalPrice: "AED 130.00", category: "under-100", type: "necklace", image: "./assets/products/pearl-layered-pendant.jpg", desc: "Classic elegant design with tear drop pearl layers." },
+    { id: 30, name: "Golden Luna Mini Hoops", price: "AED 18.00", originalPrice: "AED 25.00", category: "under-30", type: "earrings", image: "./assets/products/golden-luna-mini-hoops.jpg", desc: "Gold mini huggie hoops." },
+    { id: 31, name: "Golden Hexa Mini Hoops", price: "AED 15.00", category: "under-30", type: "earrings", image: "./assets/products/golden-hexa-mini-hoops.jpg", desc: "Hexagonal textured gold mini hoops." },
+    { id: 32, name: "Golden Crystal Retro Hoops", price: "AED 20.00", originalPrice: "AED 30.00", category: "under-30", type: "earrings", image: "./assets/products/golden-crystal-retro-hoops.jpg", desc: "Yellow sparkling crystal retro drop hoops." },
+    { id: 33, name: "Wine Drop Hoops", price: "AED 18.00", originalPrice: "AED 30.00", category: "under-30", type: "earrings", image: "./assets/products/wine-drop-hoops.jpg", desc: "Vibrant wine red drop hoop earrings." },
+    { id: 34, name: "Rosé Mini Hoops", price: "AED 15.00", category: "under-30", type: "earrings", image: "./assets/products/rose-mini-hoops.jpg", desc: "Asymmetrical rose mini huggie hoops." },
+    { id: 35, name: "Luna Layered Ear Cuffs Set", price: "AED 25.00", category: "under-30", type: "earrings", image: "./assets/products/Luna-layered-ear cuffs-set.jpg", desc: "Layered luxury gold ear cuff set." },
+    { id: 36, name: "Honey Dew Hoops", price: "AED 18.00", originalPrice: "AED 30.00", category: "under-30", type: "earrings", image: "./assets/products/honey-dew-hoops.jpg", desc: "Crystal honeydew teardrop hoop earrings." },
+    { id: 37, name: "Half Hoop Drops", price: "AED 30.00", originalPrice: "AED 60.00", category: "under-30", type: "earrings", image: "./assets/products/half-hoop-drops.jpg", desc: "Convertible half hoop drop earrings." },
+    { id: 38, name: "Boho Chain Earring", price: "AED 35.00", category: "under-50", type: "earrings", image: "./assets/new product/Boho chain earring.jpg", desc: "Free-spirited boho chain earrings in a refined silver finish." },
+    { id: 39, name: "Chain Loop Earrings", price: "AED 30.00", category: "under-30", type: "earrings", image: "./assets/new product/Chain loop earrings.jpg", desc: "Sculptural linked loop earrings with a sleek modern edge." },
+    { id: 40, name: "Chunky Silver Hoops", price: "AED 32.00", category: "under-50", type: "earrings", image: "./assets/new product/chuncy-silver-hoops.jpg", desc: "Bold chunky silver hoops with a lustrous satin finish." },
+    { id: 41, name: "Crystal Cherry Hoops", price: "AED 25.00", category: "under-30", type: "earrings", image: "./assets/products/crystal-cherry-hoops.jpg", desc: "Cherry red crystal drop earrings with luminous glass accents." },
+    { id: 42, name: "Dual Tone Oval Drops", price: "AED 40.00", category: "under-50", type: "earrings", image: "./assets/new product/Dual tone oval drops earrings.jpg", desc: "Dual-tone oval drop earrings blending warm and cool metallics." },
+    { id: 43, name: "Garnet Glare Asymmetrical Drops", price: "AED 55.00", category: "under-100", type: "earrings", image: "./assets/new product/garnet-glare-asymmetrical-drops.jpg", desc: "Asymmetrical garnet drops with a rich ruby glare finish." },
+    { id: 44, name: "Garnet Glare Drops", price: "AED 55.00", category: "under-100", type: "earrings", image: "./assets/new product/garnet-glare-drops.jpg", desc: "Classic garnet glare drop earrings with deep crimson stones." },
+    { id: 45, name: "Garnet Glare Hollow Drops", price: "AED 60.00", category: "under-100", type: "earrings", image: "./assets/new product/garnet-glare-hollow-drops.jpg", desc: "Hollow garnet drop earrings in a radiant crimson tone." },
+    { id: 46, name: "Green Crescent Earrings", price: "AED 38.00", category: "under-50", type: "earrings", image: "./assets/new product/Green crescent earrings.jpg", desc: "Emerald crescent earrings with a soft vintage glow." },
+    { id: 47, name: "Luna Layered Ear Cuffs Set", price: "AED 35.00", category: "under-50", type: "earrings", image: "./assets/products/Luna-layered-ear cuffs-set.jpg", desc: "Layered lunar ear cuff set in polished gold tones." },
+    { id: 48, name: "Rainbow Crystal Drops", price: "AED 52.00", category: "under-100", type: "earrings", image: "./assets/new product/rainbow-crystal-drops.jpg", desc: "Iridescent rainbow crystal drop earrings with prismatic sparkle." },
+    { id: 49, name: "Bianca Handcuff", price: "AED 45.00", category: "under-50", type: "bracelets", image: "./assets/new product/bianca-handcuff.jpg", desc: "Sculptural bianca handcuff bracelet in a statement silhouette." },
+    { id: 50, name: "Cleopatra Handcuff", price: "AED 65.00", category: "under-100", type: "bracelets", image: "./assets/new product/cleopatra-handcuff.jpg", desc: "Regal cleopatra handcuff bracelet with bold engraved detailing." },
+    { id: 51, name: "Kelly Gold Handcuff", price: "AED 48.00", category: "under-50", type: "bracelets", image: "./assets/new product/kelly-gold-handcuff.jpg", desc: "Opulent gold handcuff bracelet with a flawless mirror shine." },
+    { id: 52, name: "Melted Gold Handcuff", price: "AED 65.00", category: "under-100", type: "bracelets", image: "./assets/new product/melted-gold-handcuff.jpg", desc: "Artistic melted gold handcuff bracelet in a fluid luxury form." },
+];
 
   /* ------------------------------------------------------------------ *
    * 3. Small, dependency-free helpers
    * ------------------------------------------------------------------ */
   const $ = (selector, scope = document) => scope.querySelector(selector);
+
+  /* ------------------------------------------------------------------ *
+   * Product image resolution - single source of truth
+   *
+   * Every product image lives in exactly one of the two real folders. Values
+   * arrive from the built-in catalogue, the admin editor or a sheet import,
+   * and older builds stored paths under an assets/images/products/ folder
+   * that never existed - so resolution returns an ordered candidate list and
+   * lets the browser pick the first file that actually loads.
+   * ------------------------------------------------------------------ */
+  const PRODUCT_IMAGE_DIR = "./assets/products/";
+  const PRODUCT_IMAGE_DIR_ALT = "./assets/new product/";
+  const PRODUCT_IMAGE_FALLBACK = "./assets/products/aura-golden-stud.jpg";
+
+  /** "Aura Golden Stud" -> "aura-golden-stud" */
+  const slugifyProductName = (name) =>
+    String(name ?? "")
+      .toLowerCase()
+      .trim()
+      .replace(/\s+/g, "-");
+
+  const isRemoteImage = (value) => /^(https?:|data:|\/\/)/i.test(value);
+
+  /** Filename with any folder, query or hash stripped: ".../a b.jpg?x" -> "a b.jpg" */
+  const imageFileName = (value) =>
+    String(value || "").replace(/^\.\//, "").split(/[?#]/)[0].split("/").pop() || "";
+
+  /**
+   * Ordered candidate paths for a product image, extension stripped so
+   * wireImage() can probe .jpg/.png/.jpeg. Remote uploads pass through as-is.
+   */
+  const productImageCandidates = (value, name) => {
+    const raw = typeof value === "string" ? value.trim() : "";
+    if (raw && isRemoteImage(raw)) return [raw];
+
+    let file = raw ? imageFileName(raw) : "";
+    /* No usable filename - rebuild from the product name. */
+    if (!file) {
+      const slug = slugifyProductName(name);
+      file = slug ? `${slug}.jpg` : "";
+    } else if (!/\.[a-z0-9]+$/i.test(file)) {
+      file = `${slugifyProductName(file)}.jpg`;
+    }
+    if (!file) return [PRODUCT_IMAGE_FALLBACK];
+
+    /* Honour the folder the value already names so its own candidates are not
+       pushed behind the other folder, then offer that folder as a fallback. */
+    const dir = /new[\s_]*product/i.test(raw) ? PRODUCT_IMAGE_DIR_ALT : PRODUCT_IMAGE_DIR;
+    const other = dir === PRODUCT_IMAGE_DIR ? PRODUCT_IMAGE_DIR_ALT : PRODUCT_IMAGE_DIR;
+    const candidates = [dir + file, other + file];
+
+    /* A stored filename can drift from the file on disk in case or spacing
+       ("Garnet Glare Drops.jpg" vs garnet-glare-drops.jpg), so also offer the
+       name slug. wireImage() dedupes, so this adds no requests in the
+       common case where the stored name already matches. */
+    const slug = slugifyProductName(name);
+    if (slug && file.toLowerCase() !== `${slug}.jpg`) {
+      candidates.push(dir + `${slug}.jpg`, other + `${slug}.jpg`);
+    }
+
+    return candidates;
+  };
 
   const toNumber = (value) => {
     if (value === null || value === undefined || value === "") return null;
@@ -265,23 +335,65 @@
   const WISHLIST_ICON =
     '<svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 21l-8.5-8.5a5.6 5.6 0 1 1 8.5-7.5 5.6 5.6 0 1 1 8.5 7.5L12 21z"></path></svg>';
 
-  /** Normalise unstructured sheet rows into consistent product objects. */
+  /** Stock count as a whole number of pieces, or null when nobody has counted.
+ *  null is NOT zero: most of the built-in catalogue carries no count, and
+ *  reading that as an empty shelf would stamp "OUT OF STOCK" over everything.
+ *  The parse is deliberately strict - toNumber() strips letters, so it turns
+ *  "n/a" into 0, which would quietly sell out a perfectly healthy piece. */
+const stockOf = (value) => {
+  let num = null;
+
+  if (typeof value === "number") {
+    num = Number.isFinite(value) ? value : null;
+  } else if (typeof value === "string") {
+    const trimmed = value.trim();
+    if (/^\d+(\.\d+)?$/.test(trimmed)) num = Number(trimmed);
+  }
+
+  if (num === null) return null;
+  const whole = Math.floor(num);
+  return whole > 0 ? whole : 0;
+};
+
+const stockCountOf = (product) => {
+  const count = stockOf(product && product.stock);
+  return count !== null && count > 0 ? count : null;
+};
+
+/** A real zero empties the shelf; the legacy boolean still means sold out. */
+const isSoldOut = (product) =>
+  !!product && (product.outOfStock === true || stockOf(product.stock) === 0);
+
+/* Minimal, high-end scarcity line. The old copy ran to "Only 3 pieces
+   remaining in Dubai stock" under a bar that already said the same thing, so
+   the number is now the entire message. */
+const stockLabelFor = (count) => (count === 1 ? "ONLY 1 LEFT" : `ONLY ${count} LEFT`);
+
+/** Normalise unstructured sheet rows into consistent product objects. */
   const normalizeProducts = (payload) => {
     if (!Array.isArray(payload)) return [];
     return payload
       .map((row) => {
         if (!row || typeof row !== "object") return null;
         const image = row.image ?? row.img ?? row.image_url ?? row["Image URL"] ?? null;
+        const title = row.title ?? row.name ?? row["Product Name"] ?? null;
+        /* First candidate is the best local guess; wireImage() retries the rest
+           if that file is missing, so a stale folder heals itself. */
+        const normalizedImage = productImageCandidates(image, title)[0];
         return {
           id: row.id ?? row.ID ?? row.product_id,
-          title: row.title ?? row.name ?? row["Product Name"] ?? null,
+          title: title,
           price: toNumber(row.price ?? row.Price ?? row["Price (AED)"]),
           category: row.category ?? row.filter ?? null,
           type: row.type ?? row.kind ?? null,
-          image,
+          image: normalizedImage,
           fallbackImage: row.fallback_image ?? row.fallbackImage ?? null,
           description: row.description ?? row.Description ?? row.desc ?? null,
           badge: row.badge ?? row.tag ?? row.Badge ?? null,
+          /* Kept as a whole number of pieces, or null when the source sheet has
+             no count at all - see stockOf() for why null must not become 0. */
+          stock: stockOf(row.stock ?? row.Stock ?? row["Stock Count"] ?? row.quantity),
+          outOfStock: row.outOfStock === true,
         };
       })
       .filter((p) => p && p.title && p.price !== null && p.price > 0)
@@ -313,75 +425,123 @@
   };
 
   /* Local image resolution:
-   * `assets/products/<slug>` has no extension in the dataset, so we probe
-   * .jpg -> .png -> .jpeg (and upper-case variants) at runtime. The first
-   * extension that loads is cached per base path so grids and the cart
-   * never re-probe the same file.  Each error handler removes itself before
-   * setting the next src, preventing listener stacking.
+   * productImageCandidates() returns an ordered list of extension-less paths
+   * (its own folder first, then the other real folder). wireImage() walks that
+   * list, trying .jpg -> .png -> .jpeg (and upper-case variants) at runtime,
+   * because the dataset carries no extension and casing differs on disk.
+   *
+   * The first URL that loads is cached per candidate key so grids, the cart and
+   * the wishlist never re-probe the same file. Each error handler removes
+   * itself before setting the next src, preventing listener stacking. Once
+   * every candidate is exhausted the real aura-golden-stud.jpg is used as a
+   * last resort, and only a genuinely dead fallback drops to the monogram.
    */
   const IMAGE_EXTENSIONS = ["jpg", "png", "jpeg", "JPG", "PNG", "JPEG"];
-  const resolvedImages = new Map(); // base path -> working URL ("" = dead)
+  const resolvedImages = new Map(); // candidate key -> working URL ("" = dead)
 
   const wireImage = (img, product, onExhausted) => {
-    const base = product && typeof product.image === "string" ? product.image : null;
-    if (!base) {
-      onExhausted();
+    const candidates = productImageCandidates(
+      product && product.image,
+      (product && (product.title || product.name)) || ""
+    );
+
+    /* Uploads from the storefront editor arrive as Base64 data URLs, which are
+       already complete sources and must not go through extension probing. */
+    if (candidates.length === 1 && isRemoteImage(candidates[0])) {
+      img.src = candidates[0];
       return;
     }
 
-    const cached = resolvedImages.get(base);
-    if (cached !== undefined) {
+    /* Candidate keys are tried in order, deduped, with the real aura photo as
+       the guaranteed last resort. */
+    const keys = candidates
+      .map((candidate) => candidate.replace(/\.[^.]+$/, ""))
+      .filter((key, i, all) => all.indexOf(key) === i);
+    const fallbackKey = PRODUCT_IMAGE_FALLBACK.replace(/\.[^.]+$/, "");
+    if (keys.indexOf(fallbackKey) === -1) keys.push(fallbackKey);
+    const lastIndex = keys.length - 1;
+
+    /* Reuse a resolved URL when we have one; otherwise start at the first
+       candidate nobody has tried yet. -1 means every candidate is known dead. */
+    let index = -1;
+    for (let i = 0; i < keys.length; i++) {
+      const cached = resolvedImages.get(keys[i]);
       if (cached) {
         img.src = cached;
         return;
       }
+      if (cached === undefined && index === -1) index = i;
+    }
+    if (index === -1) {
       onExhausted();
       return;
     }
 
-    let attempt = 0;
+    let extension = 0;
+
     const onLoaded = () => {
-      resolvedImages.set(base, img.src);
+      resolvedImages.set(keys[index], img.src);
     };
 
     const onFailed = () => {
       img.removeEventListener("error", onFailed);
-      attempt++;
-      if (attempt >= IMAGE_EXTENSIONS.length) {
-        resolvedImages.set(base, "");
-        onExhausted();
+      img.removeEventListener("load", onLoaded);
+
+      if (extension < IMAGE_EXTENSIONS.length - 1) {
+        extension++;
+        img.src = `${keys[index]}.${IMAGE_EXTENSIONS[extension]}`;
+        img.addEventListener("load", onLoaded, { once: true });
+        img.addEventListener("error", onFailed);
         return;
       }
-      img.src = `${base}.${IMAGE_EXTENSIONS[attempt]}`;
-      img.addEventListener("error", onFailed);
+
+      /* This candidate is exhausted - mark it dead and move to the next. */
+      resolvedImages.set(keys[index], "");
+
+      index++;
+      if (index <= lastIndex) {
+        extension = 0;
+        img.src = `${keys[index]}.${IMAGE_EXTENSIONS[0]}`;
+        img.addEventListener("load", onLoaded, { once: true });
+        img.addEventListener("error", onFailed);
+        return;
+      }
+
+      onExhausted();
     };
 
     img.addEventListener("load", onLoaded, { once: true });
     img.addEventListener("error", onFailed);
-    img.src = `${base}.${IMAGE_EXTENSIONS[0]}`;
+    img.src = `${keys[index]}.${IMAGE_EXTENSIONS[0]}`;
   };
 
   const buildCard = (product, index) => {
     const card = document.createElement("article");
     card.className = "product-card";
+    card.dataset.productId = String(product.id);
     card.style.animationDelay = `${Math.min(index % CONFIG.PAGE_SIZE, 3) * 80}ms`;
+
+    const soldOut = isSoldOut(product);
+    if (soldOut) card.classList.add("lurei-is-sold-out");
 
     const media = document.createElement("div");
     media.className = "product-card__media";
 
-    if (product.image && typeof product.image === "string") {
-      const img = document.createElement("img");
-      img.alt = product.title;
-      img.width = 500;
-      img.height = 500;
-      img.loading = "lazy";
-      wireImage(img, product, () =>
-        img.replaceWith(buildPlaceholder("product-card__placeholder", product))
-      );
-      media.appendChild(img);
-    } else {
-      media.appendChild(buildPlaceholder("product-card__placeholder", product));
-    }
+    /* One path for every card: wireImage() slugifies the name when there is no
+       stored image, and the onerror net catches anything that still 404s. */
+    const img = document.createElement("img");
+    img.alt = product.title;
+    img.width = 500;
+    img.height = 500;
+    img.loading = "lazy";
+    img.onerror = function () {
+      this.onerror = null;
+      this.src = PRODUCT_IMAGE_FALLBACK;
+    };
+    wireImage(img, product, () =>
+      img.replaceWith(buildPlaceholder("product-card__placeholder", product))
+    );
+    media.appendChild(img);
 
     const badge = product.badge ? String(product.badge).trim() : null;
     if (badge) {
@@ -389,6 +549,23 @@
       label.className = "product-card__badge";
       label.textContent = badge;
       media.appendChild(label);
+    }
+
+    if (soldOut) {
+      const label = document.createElement("span");
+      label.className = "product-card__badge product-card__badge--sold-out";
+      label.textContent = "Out of Stock";
+      media.appendChild(label);
+    } else {
+      /* Scarcity rides on the pill alone - no second line of stock copy in the
+         body, so the card cannot contradict itself after a restock. */
+      const count = stockCountOf(product);
+      if (count) {
+        const label = document.createElement("span");
+        label.className = "product-card__badge product-card__badge--stock";
+        label.textContent = stockLabelFor(count);
+        media.appendChild(label);
+      }
     }
 
     const was = toNumber(product.originalPrice);
@@ -447,9 +624,15 @@
     const cta = document.createElement("button");
     cta.className = "product-card__cta";
     cta.type = "button";
-    cta.dataset.add = String(product.id);
-    cta.innerHTML = `${CART_ICON}<span>Add to Cart</span>`;
-    cta.setAttribute("aria-label", `Add ${product.title} to cart — ${formatPrice(product.price)}`);
+    if (!soldOut) cta.dataset.add = String(product.id);
+    cta.innerHTML = `${CART_ICON}<span>${soldOut ? "Out of Stock" : "Add to Cart"}</span>`;
+    cta.setAttribute(
+      "aria-label",
+      soldOut
+        ? `${product.title} is out of stock`
+        : `Add ${product.title} to cart — ${formatPrice(product.price)}`
+    );
+    if (soldOut) cta.disabled = true;
     body.appendChild(cta);
 
     card.append(media, body);
@@ -472,19 +655,46 @@
 
   const newInGridEl = $("#new-in-grid");
 
+  /* The curated six lead the rail, then whatever the admin has published since.
+     Only genuine additions are appended: the catalogue holds every built-in
+     product too, and a curated arrivals row that quietly grew to the whole
+     shop would stop curating anything. */
+  const catalogueAdditions = () => {
+    const store = window.LureiCatalogue;
+    if (!store || typeof store.created !== "function") return [];
+    return store.created();
+  };
+
+  const newInProducts = () => {
+    const seeded = NEW_IN_IDS.map((id) =>
+      catalogue.find((p) => String(p.id) === String(id))
+    ).filter(Boolean);
+
+    const seededKeys = new Set(seeded.map((p) => String(p.id)));
+    const added = catalogueAdditions().filter((p) => !seededKeys.has(String(p.id)));
+
+    return [...seeded, ...added];
+  };
+
   const renderNewIn = () => {
     if (!newInGridEl) return;
 
     const fragment = document.createDocumentFragment();
-    NEW_IN_IDS.forEach((id, index) => {
-      const product = catalogue.find((p) => String(p.id) === String(id));
-      if (!product) return;
-
+    newInProducts().forEach((product, index) => {
+      const id = Number(product.id);
       const vault = NEW_IN_VAULT[id] || { original: formatAED(product.price), stock: 4, left: 3 };
-      const pct = Math.max(8, Math.round((vault.left / vault.stock) * 100));
+      const soldOut = isSoldOut(product);
+
+      /* An admin count always wins over the curated seed number, so a restock
+         is reflected here in the same render as the collections grid. */
+      const counted = stockCountOf(product);
+      const left = counted === null ? vault.left : counted;
+      const pct = soldOut ? 0 : Math.max(8, Math.round((left / vault.stock) * 100));
 
       const card = document.createElement("article");
       card.className = "new-in-card";
+      card.dataset.productId = String(product.id);
+      if (soldOut) card.classList.add("lurei-is-sold-out");
       card.style.animationDelay = `${index * 90}ms`;
 
       const media = document.createElement("div");
@@ -504,9 +714,14 @@
         media.appendChild(buildPlaceholder("new-in-card__placeholder", product));
       }
 
+      /* One stock message per card. The pill is the only one now - the long
+         "remaining in Dubai stock" line underneath it said the same number a
+         second time and only cluttered the card. */
       const limited = document.createElement("span");
-      limited.className = "new-in-card__limited";
-      limited.textContent = `LIMITED VAULT \u2022 ${vault.left} LEFT`;
+      limited.className = soldOut
+        ? "new-in-card__limited new-in-card__limited--sold-out"
+        : "new-in-card__limited";
+      limited.textContent = soldOut ? "OUT OF STOCK" : `LIMITED VAULT \u2022 ${left} LEFT`;
 
       const heart = document.createElement("button");
       heart.type = "button";
@@ -540,6 +755,9 @@
       nowPrice.textContent = formatPrice(product.price);
       price.append(wasPrice, nowPrice);
 
+      /* The slim depletion bar survives as a purely visual cue; the number now
+         lives in the pill only, so there is nothing to contradict after a
+         restock. */
       const stock = document.createElement("div");
       stock.className = "new-in-card__stock";
       const stockTrack = document.createElement("div");
@@ -548,17 +766,20 @@
       stockFill.className = "new-in-card__stock-fill";
       stockFill.style.width = `${pct}%`;
       stockTrack.appendChild(stockFill);
-      const stockLabel = document.createElement("p");
-      stockLabel.className = "new-in-card__stock-label";
-      stockLabel.textContent = `Only ${vault.left} piece${vault.left === 1 ? "" : "s"} remaining in Dubai stock`;
-      stock.append(stockTrack, stockLabel);
+      stock.appendChild(stockTrack);
 
       const cta = document.createElement("button");
       cta.type = "button";
       cta.className = "product-card__cta";
-      cta.dataset.add = String(product.id);
-      cta.setAttribute("aria-label", `Add ${product.title} to cart — ${formatPrice(product.price)}`);
-      cta.innerHTML = `${CART_ICON}<span>Add to Cart</span>`;
+      if (!soldOut) cta.dataset.add = String(product.id);
+      cta.setAttribute(
+        "aria-label",
+        soldOut
+          ? `${product.title} is out of stock`
+          : `Add ${product.title} to cart — ${formatPrice(product.price)}`
+      );
+      cta.innerHTML = `${CART_ICON}<span>${soldOut ? "Out of Stock" : "Add to Cart"}</span>`;
+      if (soldOut) cta.disabled = true;
 
       body.append(title, desc, price, stock, cta);
       card.append(media, body);
@@ -566,6 +787,39 @@
     });
 
     newInGridEl.replaceChildren(fragment);
+  };
+
+  /* ------------------------------------------------------------------ *
+   * 4c. Just In — everything the admin has published, on the homepage
+   * ------------------------------------------------------------------ */
+  /* The Top Selling carousel above is deliberately fixed: three curated
+     batches of four ids, with a CSS track width and a clone-the-first-batch
+     loop that only line up at exactly three batches. Feeding admin additions
+     into it would mean rewriting that geometry for a variable number of
+     pages, so new pieces get their own rail instead — same buildCard()
+     template, same badges, same sold-out treatment, and no timing to break.
+     The section stays hidden until there is something in it, so a shopper
+     never sees an empty heading. */
+  const justInEl = $("#just-in");
+  const justInGridEl = $("#just-in-grid");
+
+  const JUST_IN_LIMIT = 8;
+
+  const renderJustIn = () => {
+    if (!justInEl || !justInGridEl) return;
+
+    const added = catalogueAdditions().slice(0, JUST_IN_LIMIT);
+    justInEl.hidden = added.length === 0;
+    if (!added.length) {
+      justInGridEl.replaceChildren();
+      return;
+    }
+
+    const fragment = document.createDocumentFragment();
+    added.forEach((product, index) => {
+      fragment.appendChild(buildCard(product, index));
+    });
+    justInGridEl.replaceChildren(fragment);
   };
 
   /* ------------------------------------------------------------------ *
@@ -805,6 +1059,7 @@
     renderTopSellers();
     refreshCollections();
     renderNewIn();
+    renderJustIn();
     updateLoadMore();
     clearStatus();
   };
@@ -1289,6 +1544,35 @@
     }
   };
 
+  /** Adds `count` business days to `from`, skipping Saturday and Sunday.
+   *  Returns a Date on the target day. */
+  const addBusinessDays = (from, count) => {
+    const date = new Date(from.getTime());
+    let remaining = count;
+    while (remaining > 0) {
+      date.setDate(date.getDate() + 1);
+      const day = date.getDay();
+      if (day !== 0 && day !== 6) remaining -= 1;
+    }
+    return date;
+  };
+
+  /** ISO yyyy-mm-dd for a Date, in local time (not UTC, which can shift
+   *  the day for shoppers east or west of Greenwich). */
+  const toISODate = (date) => {
+    const month = String(date.getMonth() + 1).padStart(2, "0");
+    const day = String(date.getDate()).padStart(2, "0");
+    return date.getFullYear() + "-" + month + "-" + day;
+  };
+
+  /** Standard quoted window: 2-3 business days out, as an ISO date. */
+  const defaultDeliveryDateISO = () => toISODate(addBusinessDays(new Date(), 3));
+
+  /* Past delivery dates are never a real request, so the native date picker
+     blocks them instead of failing validation on submit. */
+  const deliveryDateInput = $("#cust-delivery-date");
+  if (deliveryDateInput) deliveryDateInput.min = toISODate(new Date());
+
   checkoutForm.addEventListener("submit", (event) => {
     event.preventDefault();
     event.stopPropagation();
@@ -1304,6 +1588,13 @@
     const address = $("#cust-address").value.trim();
     const payment = document.querySelector('input[name="payment"]:checked').value;
     const paymentLabel = payment === "card" ? "Online Payment" : "Cash on Delivery";
+
+    /* Requested delivery date. When the shopper leaves it blank we quote the
+       standard 2-3 business day window as an ISO date, which is what the
+       admin dashboard shows in its Req. Delivery Date column. */
+    const requestedDeliveryDate = deliveryDateInput && deliveryDateInput.value
+      ? deliveryDateInput.value
+      : defaultDeliveryDateISO();
 
     const orderId = buildOrderReference();
     const items = [...cart];
@@ -1333,6 +1624,78 @@
       currency: currencyCode(),
       total: totalPrice,
     };
+
+    /* Persist the placed order so the LUREÍ admin panel (admin-dashboard.html)
+       can read real order objects instead of dummy data. Appended to the
+       'lurei_orders' log; delivery status defaults to "pending". */
+    const orderRecord = {
+      orderId,
+      customerName: name,
+      phone,
+      email,
+      address,
+      payment: paymentLabel,
+      paymentMethod: payment,
+      requestedDeliveryDate,
+      items: cart.map((item) => ({
+        title: item.title,
+        price: item.price,
+        quantity: item.quantity,
+      })),
+      totalAED: Number(totalPrice),
+      currencyAtOrder: currencyCode(),
+      status: "pending",
+      createdAt: new Date().toISOString(),
+    };
+
+    try {
+      const ORDERS_KEY = "lurei_orders";
+      let stored = [];
+      try {
+        const parsed = JSON.parse(localStorage.getItem(ORDERS_KEY) || "[]");
+        if (Array.isArray(parsed)) stored = parsed;
+      } catch {}
+      stored.push(orderRecord);
+      localStorage.setItem(ORDERS_KEY, JSON.stringify(stored));
+    } catch (storageError) {
+      /* Storage can genuinely fail (private browsing, quota exceeded, storage
+         disabled). Swallowing this loses the order silently while the customer
+         still completes it on WhatsApp, so make the failure visible. */
+      console.warn("[Orders] could not persist order locally:", storageError && storageError.message);
+      if (typeof showLureiToast === "function") {
+        showLureiToast(
+          "Order not saved to the boutique dashboard. Please contact us with your order reference.",
+          "error"
+        );
+      }
+    }
+
+    /* Mirror the order into the shared Supabase table so it reaches the
+       admin dashboard on any device, not just this browser.
+
+       Deliberately not awaited: the shopper has already paid and the
+       success panel and WhatsApp handoff must not wait on a network call.
+       The same orderId is written here and in the local record, so the
+       dashboard, the PDF invoice and the WhatsApp message all agree. */
+    if (window.LureiBackend && typeof window.LureiBackend.insertOrder === "function") {
+      window.LureiBackend.insertOrder(orderRecord)
+        .then((result) => {
+          if (result && result.skipped && result.reason === "not-configured") {
+            console.info("[Orders] Supabase not configured; order kept in localStorage only.");
+          }
+        })
+        .catch((uploadError) => {
+          console.warn("[Orders] Supabase upload failed:", uploadError && uploadError.message);
+          /* The local copy already exists, so the order is not lost — but
+             the admin will not see it, so tell the shopper. */
+          if (typeof showLureiToast === "function") {
+            showLureiToast(
+              "Order placed, but not reached our dashboard. Please contact us with your order reference.",
+              "error"
+            );
+          }
+        });
+    }
 
     /* Attach the explicit Download Official Invoice handler — a real,
        user-initiated gesture bypasses browser pop-up suppression. Fresh
@@ -2053,6 +2416,15 @@ Thank you!`;
   /* ------------------------------------------------------------------ *
    * 10. Boot
    * ------------------------------------------------------------------ */
+  /* The storefront editor (admin-editor.js) layers locally owned changes
+     over whichever defaults are used here, so admin edits survive a page
+     reload and are never discarded by a Google Sheets refresh. */
+  const catalogueStore = window.LureiCatalogue || null;
+
+  const applyCatalogue = (defaults) => {
+    seedCatalogue(catalogueStore ? catalogueStore.resolve(defaults) : defaults);
+  };
+
   (async () => {
     bindFilters();
     bindCollectionTools();
@@ -2067,15 +2439,24 @@ Thank you!`;
       activeFilter = selectedCat;
     }
 
-    seedCatalogue(normalizeProducts(products));
+    const defaults = normalizeProducts(products);
+    if (catalogueStore && typeof catalogueStore.setDefaults === "function") catalogueStore.setDefaults(defaults);
+
+    applyCatalogue(defaults);
     applyFilter(activeFilter);
     renderCartItems();
     resetCheckoutView();
 
+    /* Keeps this tab in step with the admin tab and with any other tab that
+       the store change came from. */
+    if (catalogueStore && typeof catalogueStore.subscribe === "function") {
+      catalogueStore.subscribe(() => applyCatalogue(defaults));
+    }
+
     try {
       const live = await fetchFromSheets();
       if (live && live.length) {
-        seedCatalogue(live);
+        applyCatalogue(live);
         console.info("LUREÍ products loaded from Google Sheets.");
       }
     } catch (error) {
@@ -2150,8 +2531,9 @@ Thank you!`;
     bindServiceModals();
     bindSmoothAnchors();
 
-    /* Newsletter form — Brevo v3 welcome email. Single validated listener,
-       trimmed & sanitized payload, loading state, toast feedback. */
+    /* Newsletter form — Formspree onto lureiaccessories@gmail.com, with a
+       Brevo welcome-email fallback while FORMSPREE_FORM_ID is unset.
+       Single validated listener, trimmed sanitized payload, loading state. */
     const form = $("#newsletter-form");
     const newsletterNote = $("#newsletter-note");
     if (form) {
@@ -2178,44 +2560,76 @@ Thank you!`;
           submitBtn.innerHTML = "SUBSCRIBING...";
         }
 
-        const displayName = nameValue || "Valued Customer";
-        const htmlContent =
-          "<div style='font-family:Arial,sans-serif;padding:30px;max-width:600px;margin:0 auto;border:1px solid #eeeeee;'>" +
-          "<h1 style='color:#d4af37;text-align:center;'>L U R E &Iacute;</h1>" +
-          "<p style='text-align:center;color:#777;'>DUBAI &bull; FINE JEWELRY</p>" +
-          "<hr style='border:0;border-top:1px solid #eee;margin:20px 0;'>" +
-          "<p>Welcome to LURE&Iacute; Circle, <strong>" + displayName + "</strong>!</p>" +
-          "<p>Thank you for subscribing to our exclusive styling updates.</p>" +
-          "<p style='color:#999;margin-top:30px;'>Best regards,<br><strong>LURE&Iacute; Team</strong></p></div>";
+        let sendPromise;
+        if (FORMSPREE_FORM_ID) {
+          /* Formspree: forwards subscriber data straight to the linked inbox. */
+          sendPromise = fetch("https://formspree.io/f/" + FORMSPREE_FORM_ID, {
+            method: "POST",
+            headers: {
+              "accept": "application/json",
+              "content-type": "application/json",
+            },
+            body: JSON.stringify({
+              name: nameValue || "Valued Customer",
+              email: emailValue,
+              _subject: "New LUREÍ Circle subscriber",
+            }),
+          })
+            .then((response) => {
+              if (!response.ok) {
+                return response.json().catch(() => null).then((err) => {
+                  const detail =
+                    (err && err.errors && err.errors.map((e) => e.message).join(", ")) ||
+                    (err && err.error) ||
+                    "Formspree responded with status " + response.status;
+                  throw new Error(detail);
+                });
+              }
+            });
+        } else {
+          /* Brevo fallback — welcome email while FORMSPREE_FORM_ID is unset. */
+          const displayName = nameValue || "Valued Customer";
+          const htmlContent =
+            "<div style='font-family:Arial,sans-serif;padding:30px;max-width:600px;margin:0 auto;border:1px solid #eeeeee;'>" +
+            "<h1 style='color:#d4af37;text-align:center;'>L U R E &Iacute;</h1>" +
+            "<p style='text-align:center;color:#777;'>DUBAI &bull; FINE JEWELRY</p>" +
+            "<hr style='border:0;border-top:1px solid #eee;margin:20px 0;'>" +
+            "<p>Welcome to LURE&Iacute; Circle, <strong>" + displayName + "</strong>!</p>" +
+            "<p>Thank you for subscribing to our exclusive styling updates.</p>" +
+            "<p style='color:#999;margin-top:30px;'>Best regards,<br><strong>LURE&Iacute; Team</strong></p></div>";
 
-        const payload = {
-          sender: { name: "LUREÍ Dubai", email: "lureiaccessories.s925@gmail.com" },
-          to: [{ email: emailValue, name: displayName }],
-          subject: "Welcome to LUREÍ Circle!",
-          htmlContent: htmlContent,
-        };
+          const payload = {
+            sender: { name: "LUREÍ Dubai", email: "lureiaccessories.s925@gmail.com" },
+            to: [{ email: emailValue, name: displayName }],
+            subject: "Welcome to LUREÍ Circle!",
+            htmlContent: htmlContent,
+          };
 
-        fetch(BREVO_CONFIG.endpoint, {
-          method: "POST",
-          headers: {
-            "accept": "application/json",
-            "api-key": BREVO_CONFIG.apiKey,
-            "content-type": "application/json",
-          },
-          body: JSON.stringify(payload),
-        })
-          .then((response) => {
+          sendPromise = fetch(BREVO_CONFIG.endpoint, {
+            method: "POST",
+            headers: {
+              "accept": "application/json",
+              "api-key": BREVO_CONFIG.apiKey,
+              "content-type": "application/json",
+            },
+            body: JSON.stringify(payload),
+          }).then((response) => {
             if (!response.ok) {
               return response.json().catch(() => null).then((err) => {
                 throw new Error((err && err.message) || "Brevo responded with status " + response.status);
               });
             }
-            showLureiToast("Welcome to LUREÍ Circle! Check your inbox.");
+          });
+        }
+
+        sendPromise
+          .then(() => {
+            showLureiToast("Thank you for subscribing!");
             if (newsletterNote) newsletterNote.hidden = false;
             form.reset();
           })
           .catch((error) => {
-            console.error("[Brevo] email send failed:", error && error.message ? error.message : error);
+            console.error("[Newsletter] send failed:", error && error.message ? error.message : error);
             showLureiToast("Something went wrong. Please try again.", "error");
           })
           .finally(() => {
@@ -2798,16 +3212,20 @@ Thank you!`;
   const gcAmountEl = document.querySelector("#gc-amount");
   const gcRecipientEl = document.querySelector("#gc-recipient");
   const gcMessageEl = document.querySelector("#gc-message");
+  const gcSenderInput = document.querySelector("#gc-sender");
   const gcNameInput = document.querySelector("#gc-name");
   const gcNoteInput = document.querySelector("#gc-note");
   const gcCustomField = document.querySelector("#gc-custom-amount-field");
   const gcCustomInput = document.querySelector("#gc-custom-amount");
-  const gcBtnAmount = document.querySelector("#gc-btn-amount");
   const gcForm = document.querySelector("#gc-form");
   const gcSuccess = document.querySelector("#gc-success");
   const gcDateWrap = document.querySelector("#gc-date-wrap");
+  const gcDateInput = document.querySelector("#gc-date");
   const gcDeliveryRadios = Array.from(
     document.querySelectorAll('input[name="gc-delivery"]')
+  );
+  const gcPassRadios = Array.from(
+    document.querySelectorAll('input[name="gc-pass"]')
   );
 
   if (gcCards.length && gcPreviewCard) {
@@ -2831,9 +3249,6 @@ Thank you!`;
           gcNoteInput && gcNoteInput.value.trim()
             ? gcNoteInput.value.trim()
             : "A spark of elegance, just for you.";
-      }
-      if (gcBtnAmount) {
-        gcBtnAmount.textContent = String(value || 0);
       }
     };
 
@@ -2883,16 +3298,82 @@ Thank you!`;
     if (gcDeliveryRadios.length && gcDateWrap) {
       gcDeliveryRadios.forEach((radio) => {
         radio.addEventListener("change", () => {
-          gcDateWrap.hidden = radio.value !== "schedule";
+          const scheduling = radio.value === "schedule";
+          gcDateWrap.hidden = !scheduling;
+          /* Only demand a date while scheduling. A required control inside a
+             hidden [hidden] wrapper is unfocusable, which makes reportValidity()
+             fail silently — so this must stay in step with the wrapper. */
+          if (gcDateInput) gcDateInput.required = scheduling;
         });
       });
     }
 
+    if (gcPassRadios.length) {
+      const gcSyncPassState = () => {
+        gcPassRadios.forEach((radio) => {
+          const option = radio.closest(".pay-option");
+          if (option) option.classList.toggle("is-selected", radio.checked);
+        });
+      };
+      gcPassRadios.forEach((radio) => {
+        radio.addEventListener("change", gcSyncPassState);
+      });
+      gcSyncPassState();
+    }
+
+    /* Renders the native date picker value as "05 March 2026" for the DM. */
+    const gcFormatDeliveryDate = (iso) => {
+      if (!iso) return "";
+      const parsed = new Date(`${iso}T00:00:00`);
+      if (Number.isNaN(parsed.getTime())) return iso;
+      return parsed.toLocaleDateString("en-GB", {
+        day: "2-digit",
+        month: "long",
+        year: "numeric",
+      });
+    };
+
     if (gcForm) {
       gcForm.addEventListener("submit", (event) => {
         event.preventDefault();
+
+        /* novalidate suppresses the automatic bubble, so run it by hand and
+           bail before opening WhatsApp. Matches the checkout flow. */
+        if (!gcForm.reportValidity()) return;
+
+        const passRadio = gcPassRadios.find((radio) => radio.checked);
+        const pass = passRadio ? passRadio.value : "";
+        const sender = gcSenderInput ? gcSenderInput.value.trim() : "";
+        const recipient = gcNameInput ? gcNameInput.value.trim() : "";
+        const note = gcNoteInput ? gcNoteInput.value.trim() : "";
+        const scheduling = gcDeliveryRadios.some(
+          (radio) => radio.checked && radio.value === "schedule"
+        );
+        const deliveryDate = scheduling
+          ? gcFormatDeliveryDate(gcDateInput && gcDateInput.value)
+          : "Send Now";
+
+        const waMessage = `Hello LUREÍ Team! 👋
+
+I have selected a Luxury Gift Pass for my loved one:
+
+• Selected Pass: ${pass}
+• Purchased By: ${sender}
+• Recipient Name: ${recipient}
+• Scheduled Delivery Date: ${deliveryDate}
+• Personal Gift Note: ${note || "No personal note added"}
+
+Could you please share the exact benefits, items, and advantages that come under the ${pass} so we can finalize the delivery details?`;
+
+        const waUrl = `https://wa.me/${CONFIG.CONTACT_WHATSAPP}?text=${encodeURIComponent(waMessage)}`;
+
+        /* Opens in a new tab, so the storefront never navigates away or
+           reloads — no layout or style state is lost. */
+        window.open(waUrl, "_blank", "noopener,noreferrer");
+
+        /* Left the form in place so returning from WhatsApp keeps the
+           customer's details. */
         if (gcSuccess) {
-          gcForm.hidden = true;
           gcSuccess.hidden = false;
           gcSuccess.scrollIntoView({ behavior: "smooth", block: "center" });
         }

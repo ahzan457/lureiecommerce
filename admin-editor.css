@@ -1,0 +1,795 @@
+/* =====================================================================
+ * LUREÍ — Live Storefront Editor
+ * ---------------------------------------------------------------------
+ * Loaded alongside the storefront on the catalogue pages. Every selector is
+ * namespaced under `lurei-` so nothing here can reach the existing product
+ * cards, header, footer or global layout. The only deliberate exception is
+ * `.product-card.lurei-is-sold-out`, which is applied by script.js to a
+ * card it already owns.
+ * ===================================================================== */
+
+/* ------------------------------------------------------------------ *
+ * 1. Sold-out state (applies on every page, edit mode or not)
+ * ------------------------------------------------------------------ */
+.product-card.lurei-is-sold-out .product-card__media > img {
+  filter: grayscale(0.55) brightness(0.94);
+  opacity: 0.78;
+}
+
+.product-card.lurei-is-sold-out .product-card__media::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    180deg,
+    rgba(17, 17, 17, 0) 0%,
+    rgba(17, 17, 17, 0.08) 100%
+  );
+  pointer-events: none;
+}
+
+.product-card__badge--sold-out {
+  background: #1C1B1A;
+  color: #FAF8F5;
+  border-color: #1C1B1A;
+  letter-spacing: 0.14em;
+}
+
+.product-card.lurei-is-sold-out .product-card__cta {
+  opacity: 0.55;
+  cursor: not-allowed;
+  background: var(--color-line);
+  color: var(--color-muted);
+  border-color: var(--color-line);
+  box-shadow: none;
+}
+
+/* The New In rail uses its own card class, so the sold-out treatment is
+   restated here rather than left to a stylesheet that only the collections
+   grid ever loads. Same grayscale image, same flattened CTA, same scrim. */
+.new-in-card.lurei-is-sold-out .new-in-card__media > img {
+  filter: grayscale(0.55) brightness(0.94);
+  opacity: 0.78;
+}
+
+.new-in-card.lurei-is-sold-out .new-in-card__media::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    180deg,
+    rgba(17, 17, 17, 0) 0%,
+    rgba(17, 17, 17, 0.08) 100%
+  );
+  pointer-events: none;
+}
+
+.new-in-card.lurei-is-sold-out .new-in-card__cta {
+  opacity: 0.55;
+  cursor: not-allowed;
+  background: var(--color-line);
+  color: var(--color-muted);
+  border-color: var(--color-line);
+  box-shadow: none;
+}
+
+/* An empty shelf draws no bar at all - a 0% fill would read as "about to
+   arrive" rather than "gone". */
+.new-in-card.lurei-is-sold-out .new-in-card__stock {
+  display: none;
+}
+
+/* ------------------------------------------------------------------ *
+ * 2. Edit-mode session bar
+ * ------------------------------------------------------------------ */
+.lurei-edit-bar {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 9998;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 12px clamp(14px, 4vw, 34px);
+  background: linear-gradient(100deg, #111111 0%, #1C1B1A 58%, #2A2622 100%);
+  color: #FAF8F5;
+  border-bottom: 1px solid rgba(212, 175, 55, 0.55);
+  box-shadow: 0 18px 40px -24px rgba(17, 17, 17, 0.8);
+  font-family: var(--font-sans);
+  animation: lurei-bar-in 0.45s var(--ease-luxe) both;
+}
+
+@keyframes lurei-bar-in {
+  from {
+    transform: translateY(-100%);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
+.lurei-edit-bar__pulse {
+  width: 9px;
+  height: 9px;
+  flex: 0 0 auto;
+  border-radius: 50%;
+  background: #D4AF37;
+  box-shadow: 0 0 0 0 rgba(212, 175, 55, 0.7);
+  animation: lurei-pulse 2s infinite;
+}
+
+@keyframes lurei-pulse {
+  0% {
+    box-shadow: 0 0 0 0 rgba(212, 175, 55, 0.55);
+  }
+  70% {
+    box-shadow: 0 0 0 12px rgba(212, 175, 55, 0);
+  }
+  100% {
+    box-shadow: 0 0 0 0 rgba(212, 175, 55, 0);
+  }
+}
+
+.lurei-edit-bar__title {
+  font-family: var(--font-sans);
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.18em;
+  white-space: nowrap;
+}
+
+.lurei-edit-bar__hint {
+  font-size: 0.76rem;
+  color: rgba(250, 248, 245, 0.62);
+  letter-spacing: 0.04em;
+}
+
+.lurei-edit-bar__exit {
+  margin-left: auto;
+  flex: 0 0 auto;
+  padding: 9px 20px;
+  border-radius: var(--radius-btn);
+  border: 1px solid rgba(212, 175, 55, 0.7);
+  background: transparent;
+  color: #D4AF37;
+  font-family: var(--font-sans);
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.16em;
+  cursor: pointer;
+  transition: var(--transition);
+}
+
+.lurei-edit-bar__exit:hover {
+  background: #D4AF37;
+  border-color: #D4AF37;
+  color: #111111;
+}
+
+/* Keeps the fixed bar from covering the page heading underneath it. */
+body.lurei-edit-mode {
+  padding-top: 56px;
+}
+
+@media (max-width: 720px) {
+  .lurei-edit-bar__hint {
+    display: none;
+  }
+
+  .lurei-edit-bar__title {
+    font-size: 0.62rem;
+    letter-spacing: 0.12em;
+  }
+}
+
+/* ------------------------------------------------------------------ *
+ * 3. Per-card quick actions
+ * ------------------------------------------------------------------ */
+.lurei-card-tools {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 6;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  opacity: 0;
+  transform: translateY(6px);
+  transition: var(--transition);
+}
+
+.product-card:hover .lurei-card-tools,
+.product-card:focus-within .lurei-card-tools,
+.product-card.lurei-is-editing .lurei-card-tools {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+.lurei-card-btn {
+  padding: 9px 12px;
+  border: 0;
+  background: rgba(17, 17, 17, 0.92);
+  color: #FAF8F5;
+  font-family: var(--font-sans);
+  font-size: 0.6rem;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  cursor: pointer;
+  backdrop-filter: blur(4px);
+  transition: var(--transition);
+}
+
+.lurei-card-btn:hover {
+  background: #D4AF37;
+  color: #111111;
+}
+
+.lurei-card-btn.is-warn {
+  background: rgba(212, 175, 55, 0.94);
+  color: #111111;
+}
+
+/* Read-only mirror of the number driving the storefront's stock pill. */
+.lurei-card-stock {
+  padding: 7px 12px;
+  background: rgba(250, 248, 245, 0.92);
+  color: #1A1815;
+  border-bottom: 1px solid rgba(212, 175, 55, 0.45);
+  font-family: var(--font-sans);
+  font-size: 0.58rem;
+  font-weight: 700;
+  letter-spacing: 0.16em;
+}
+
+.lurei-card-stock.is-warn {
+  background: rgba(212, 175, 55, 0.94);
+  color: #111111;
+}
+
+/* ------------------------------------------------------------------ *
+ * 4. Inline quick editor
+ * ------------------------------------------------------------------ */
+.lurei-inline {
+  position: absolute;
+  inset: 0;
+  z-index: 8;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 14px;
+  overflow-y: auto;
+  background: rgba(17, 17, 17, 0.95);
+  backdrop-filter: blur(8px);
+  color: #FAF8F5;
+  font-family: var(--font-sans);
+  animation: lurei-fade 0.28s var(--ease-luxe) both;
+}
+
+@keyframes lurei-fade {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+.lurei-inline__head {
+  font-size: 0.58rem;
+  font-weight: 700;
+  letter-spacing: 0.2em;
+  color: #D4AF37;
+}
+
+.lurei-inline__actions {
+  display: flex;
+  gap: 6px;
+  margin-top: auto;
+}
+
+/* ------------------------------------------------------------------ *
+ * 5. Floating add button
+ * ------------------------------------------------------------------ */
+.lurei-add-fab {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 20px;
+  padding: 13px 26px;
+  border-radius: var(--radius-btn);
+  border: 1px solid #111111;
+  background: #111111;
+  color: #D4AF37;
+  font-family: var(--font-sans);
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.16em;
+  cursor: pointer;
+  box-shadow: var(--shadow-soft);
+  transition: var(--transition);
+}
+
+.lurei-add-fab:hover {
+  background: #D4AF37;
+  border-color: #D4AF37;
+  color: #111111;
+  transform: translateY(-2px);
+}
+
+.lurei-add-fab span {
+  font-size: 1.05rem;
+  line-height: 1;
+}
+
+/* ------------------------------------------------------------------ *
+ * 6. Modal
+ * ------------------------------------------------------------------ */
+.lurei-modal {
+  position: fixed;
+  inset: 0;
+  z-index: 10001;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: clamp(12px, 4vw, 40px);
+}
+
+.lurei-modal[hidden] {
+  display: none;
+}
+
+body.lurei-modal-open {
+  overflow: hidden;
+}
+
+.lurei-modal__scrim {
+  position: absolute;
+  inset: 0;
+  background: rgba(17, 17, 17, 0.62);
+  backdrop-filter: blur(6px);
+  animation: lurei-fade 0.3s var(--ease-luxe) both;
+}
+
+.lurei-modal__card {
+  position: relative;
+  width: min(760px, 100%);
+  max-height: calc(100vh - 40px);
+  overflow-y: auto;
+  background: #FAF8F5;
+  border: 1px solid rgba(212, 175, 55, 0.5);
+  border-radius: 20px;
+  box-shadow: var(--shadow-soft);
+  animation: lurei-modal-in 0.4s var(--ease-luxe) both;
+}
+
+@keyframes lurei-modal-in {
+  from {
+    opacity: 0;
+    transform: translateY(18px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+.lurei-modal__head {
+  display: flex;
+  align-items: flex-start;
+  gap: 16px;
+  padding: 26px 28px 18px;
+  border-bottom: 1px solid var(--color-line);
+}
+
+.lurei-modal__title {
+  margin: 0;
+  font-family: var(--font-serif);
+  font-size: clamp(1.5rem, 3.4vw, 2rem);
+  font-weight: 600;
+  color: #111111;
+}
+
+.lurei-modal__subtitle {
+  margin: 4px 0 0;
+  font-family: var(--font-sans);
+  font-size: 0.78rem;
+  color: var(--color-muted);
+}
+
+.lurei-modal__close {
+  margin-left: auto;
+  display: grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  border: 1px solid var(--color-line);
+  background: transparent;
+  color: #111111;
+  cursor: pointer;
+  transition: var(--transition);
+}
+
+.lurei-modal__close:hover {
+  border-color: #111111;
+  background: #111111;
+  color: #FAF8F5;
+}
+
+.lurei-modal__body {
+  display: block;
+  margin: 0;
+  padding: 22px 28px 26px;
+}
+
+.lurei-modal__row {
+  display: grid;
+  grid-template-columns: 200px 1fr;
+  gap: 22px;
+  align-items: start;
+}
+
+.lurei-modal__fields {
+  display: grid;
+  gap: 13px;
+}
+
+.lurei-modal__error {
+  margin: 16px 0 0;
+  padding: 11px 14px;
+  border-radius: 10px;
+  border: 1px solid rgba(180, 60, 60, 0.35);
+  background: rgba(180, 60, 60, 0.07);
+  color: #8d2f2f;
+  font-family: var(--font-sans);
+  font-size: 0.78rem;
+}
+
+.lurei-modal__foot {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: 22px;
+  padding-top: 18px;
+  border-top: 1px solid var(--color-line);
+}
+
+@media (max-width: 640px) {
+  .lurei-modal__row {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* ------------------------------------------------------------------ *
+ * 7. Fields
+ * ------------------------------------------------------------------ */
+.lurei-field {
+  display: grid;
+  gap: 6px;
+  font-family: var(--font-sans);
+}
+
+.lurei-field__label {
+  font-size: 0.62rem;
+  font-weight: 700;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--color-muted);
+}
+
+.lurei-field__optional {
+  font-weight: 400;
+  letter-spacing: 0.06em;
+  text-transform: none;
+  opacity: 0.7;
+}
+
+/* Explains what the field does to the storefront - most importantly that an
+   empty box is not the same as a zero. */
+.lurei-field__hint {
+  margin-top: 5px;
+  font-size: 0.62rem;
+  line-height: 1.5;
+  letter-spacing: 0.04em;
+  color: #8A8578;
+}
+
+.lurei-field__input {
+  width: 100%;
+  padding: 11px 13px;
+  border-radius: 10px;
+  border: 1px solid var(--color-line);
+  background: #FFFFFF;
+  color: #111111;
+  font-family: var(--font-sans);
+  font-size: 0.88rem;
+  transition: var(--transition);
+}
+
+.lurei-field__input:focus {
+  outline: none;
+  border-color: #C5A059;
+  box-shadow: 0 0 0 3px rgba(212, 175, 55, 0.18);
+}
+
+.lurei-field__input--area {
+  resize: vertical;
+  min-height: 58px;
+}
+
+/* The inline editor sits on a dark panel, so its fields invert. */
+.lurei-inline .lurei-field__label {
+  color: rgba(250, 248, 245, 0.7);
+}
+
+.lurei-inline .lurei-field__input {
+  background: rgba(250, 248, 245, 0.08);
+  border-color: rgba(212, 175, 55, 0.4);
+  color: #FAF8F5;
+  font-size: 0.8rem;
+  padding: 8px 10px;
+}
+
+.lurei-inline .lurei-field__input:focus {
+  background: rgba(250, 248, 245, 0.14);
+  border-color: #D4AF37;
+}
+
+.lurei-inline .lurei-field__input option {
+  color: #111111;
+}
+
+/* ------------------------------------------------------------------ *
+ * 8. Buttons
+ * ------------------------------------------------------------------ */
+.lurei-btn {
+  padding: 11px 20px;
+  border-radius: var(--radius-btn);
+  border: 1px solid var(--color-line);
+  background: transparent;
+  color: #111111;
+  font-family: var(--font-sans);
+  font-size: 0.66rem;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  cursor: pointer;
+  transition: var(--transition);
+}
+
+.lurei-btn:hover {
+  border-color: #111111;
+  background: rgba(17, 17, 17, 0.05);
+}
+
+.lurei-btn--primary {
+  border-color: #111111;
+  background: #111111;
+  color: #D4AF37;
+}
+
+.lurei-btn--primary:hover {
+  background: #D4AF37;
+  border-color: #D4AF37;
+  color: #111111;
+}
+
+.lurei-btn--danger {
+  border-color: rgba(180, 60, 60, 0.4);
+  color: #8d2f2f;
+}
+
+.lurei-btn--danger:hover {
+  background: rgba(180, 60, 60, 0.1);
+  border-color: #8d2f2f;
+  color: #8d2f2f;
+}
+
+.lurei-btn--block {
+  width: 100%;
+}
+
+.lurei-inline .lurei-btn {
+  border-color: rgba(212, 175, 55, 0.5);
+  color: #FAF8F5;
+  padding: 8px 14px;
+  flex: 1;
+}
+
+.lurei-inline .lurei-btn--primary {
+  border-color: #D4AF37;
+  background: #D4AF37;
+  color: #111111;
+}
+
+/* The destructive action keeps the inline panel's dark treatment but stays
+   visibly red so it never reads as a third neutral button. */
+.lurei-inline .lurei-btn--danger {
+  border-color: rgba(220, 120, 120, 0.45);
+  color: #e8a0a0;
+  background: transparent;
+}
+
+.lurei-inline .lurei-btn--danger:hover {
+  background: rgba(200, 80, 80, 0.22);
+  border-color: #e8a0a0;
+  color: #f3c4c4;
+}
+
+/* The card being quick-edited keeps its place in the grid but is called out. */
+.product-card.lurei-is-editing {
+  border-color: #D4AF37;
+  box-shadow: 0 0 0 2px rgba(212, 175, 55, 0.3), var(--shadow-soft);
+}
+
+.lurei-inline__actions + .lurei-btn {
+  margin-top: 2px;
+}
+
+/* ------------------------------------------------------------------ *
+ * 9. Image upload
+ * ------------------------------------------------------------------ */
+.lurei-upload {
+  position: relative;
+  display: grid;
+  gap: 10px;
+  cursor: pointer;
+}
+
+.lurei-upload__input {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  opacity: 0;
+  cursor: pointer;
+}
+
+.lurei-upload__preview {
+  display: grid;
+  place-items: center;
+  aspect-ratio: 1;
+  overflow: hidden;
+  border-radius: 14px;
+  border: 1px dashed rgba(197, 160, 89, 0.75);
+  background: #FBF8F2;
+  color: #C5A059;
+  transition: var(--transition);
+}
+
+.lurei-upload:hover .lurei-upload__preview,
+.lurei-upload.is-dragging .lurei-upload__preview,
+.lurei-upload.is-ready .lurei-upload__preview {
+  border-style: solid;
+  border-color: #D4AF37;
+}
+
+/* A dropped file highlights harder than a hover, so the gesture reads clearly. */
+.lurei-upload.is-dragging .lurei-upload__preview {
+  background: #F7F1E2;
+  box-shadow: 0 0 0 3px rgba(212, 175, 55, 0.2);
+}
+
+.lurei-upload__preview img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+/* Placeholder glyph sits under the preview's gold colour; pinned here so the
+   icon keeps its size if the preview is ever restyled. */
+.lurei-upload__placeholder {
+  display: grid;
+  place-items: center;
+  width: 100%;
+  height: 100%;
+  min-height: 72px;
+  color: #C5A059;
+  line-height: 0;
+}
+
+.lurei-upload__meta {
+  display: grid;
+  gap: 2px;
+  font-family: var(--font-sans);
+  text-align: center;
+}
+
+.lurei-upload__label {
+  font-size: 0.62rem;
+  font-weight: 700;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--color-muted);
+}
+
+.lurei-upload__hint {
+  font-size: 0.72rem;
+  color: var(--color-muted);
+  opacity: 0.8;
+}
+
+/* ------------------------------------------------------------------ *
+ * 10. Editor toast
+ *
+ * Intentionally .lurei-edit-toast and NOT .lurei-toast: the storefront toast
+ * helper in script.js adopts the first element matching `.lurei-toast`, so
+ * sharing the name would hand its node to whichever fired first and have the
+ * two fight over the text.
+ * ------------------------------------------------------------------ */
+.lurei-edit-toast {
+  position: fixed;
+  left: 50%;
+  bottom: 28px;
+  z-index: 10002;
+  transform: translate(-50%, 14px);
+  max-width: min(440px, calc(100vw - 32px));
+  margin: 0;
+  padding: 13px 24px;
+  border-radius: var(--radius-btn);
+  border: 1px solid rgba(212, 175, 55, 0.6);
+  background: #111111;
+  color: #FAF8F5;
+  font-family: var(--font-sans);
+  font-size: 0.82rem;
+  letter-spacing: 0.02em;
+  text-align: center;
+  opacity: 0;
+  pointer-events: none;
+  transition: var(--transition);
+  box-shadow: var(--shadow-soft);
+}
+
+.lurei-edit-toast.is-visible {
+  opacity: 1;
+  transform: translate(-50%, 0);
+}
+
+/* ------------------------------------------------------------------ *
+ * 11. Touch devices
+ *
+ * The quick actions are revealed on hover, which a touch screen never
+ * produces — they would be unreachable. Always show them instead.
+ * ------------------------------------------------------------------ */
+@media (hover: none), (max-width: 640px) {
+  .lurei-card-tools {
+    opacity: 1;
+    transform: none;
+  }
+
+  .lurei-edit-bar {
+    flex-wrap: wrap;
+    padding: 10px 16px;
+  }
+
+  .lurei-edit-bar__exit {
+    margin-left: auto;
+  }
+
+  body.lurei-edit-mode {
+    padding-top: 84px;
+  }
+}
+
+/* ------------------------------------------------------------------ *
+ * 12. Reduced motion
+ * ------------------------------------------------------------------ */
+@media (prefers-reduced-motion: reduce) {
+  .lurei-edit-bar,
+  .lurei-modal__card,
+  .lurei-modal__scrim,
+  .lurei-inline {
+    animation: none;
+  }
+
+  .lurei-edit-bar__pulse {
+    animation: none;
+  }
+
+  .lurei-edit-toast {
+    transition: none;
+  }
+}

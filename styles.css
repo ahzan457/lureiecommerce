@@ -1252,6 +1252,19 @@ select {
   line-height: 1;
 }
 
+.product-card__badge--stock {
+  /* Matches the LIMITED VAULT pill on the New In rail: a light ivory chip with
+     a gold hairline, so "ONLY 3 LEFT" reads as part of the same system rather
+     than a second, louder badge competing with it. */
+  top: auto;
+  bottom: 0.8rem;
+  left: 0.8rem;
+  background: rgba(250, 248, 245, 0.95);
+  color: #1A1815;
+  border: 1px solid #C5A059;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.08);
+}
+
 .product-card__body {
   display: flex;
   flex-direction: column;
@@ -1335,6 +1348,20 @@ select {
   outline-offset: 3px;
 }
 
+/* Just In — the homepage rail for pieces published from Admin.
+   It sits on the same warm ivory ground as the New In rail and reuses
+   .products__grid for the columns, so an admin upload lands in the exact
+   template a shopper already knows. The hairline keeps it reading as its own
+   band instead of merging into the Top Selling section above it. */
+.just-in {
+  background: #FAF8F5;
+  border-top: 1px solid var(--color-line);
+}
+
+.just-in__grid {
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+}
+
 /* Load More */
 .products__more {
   display: flex;
@@ -1367,7 +1394,6 @@ select {
   background: var(--color-cream-soft);
   border-block: 1px solid var(--color-line);
   padding-bottom: 70px;
-  margin-bottom: 30px;
 }
 
 .testimonials__grid {
@@ -1473,87 +1499,7 @@ select {
 }
 
 /* ==========================================================================
-   8. BRAND LOGO STRIP — luxury trust marquee
-   ========================================================================== */
-.lurei-trust-partners {
-  padding: 45px 5%;
-  background: #FAF8F5;
-  border-top: 1px solid rgba(212, 175, 55, 0.15);
-  border-bottom: 1px solid rgba(212, 175, 55, 0.15);
-  text-align: center;
-}
-
-.trust-header {
-  text-align: center;
-}
-
-.trust-tag {
-  font-size: 0.75rem;
-  letter-spacing: 2.5px;
-  color: #8C8275;
-  font-weight: 600;
-  text-transform: uppercase;
-  margin-bottom: 28px;
-  display: block;
-}
-
-.brand-grid-container {
-  display: grid;
-  grid-template-columns: repeat(6, 1fr);
-  gap: 32px;
-  align-items: center;
-  max-width: 1300px;
-  margin: 0 auto;
-}
-
-.brand-grid-item {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 10px;
-  padding: 16px 8px;
-  transition: transform 0.3s ease;
-}
-
-.brand-grid-item:hover {
-  transform: translateY(-4px);
-}
-
-.brand-grid-img {
-  height: 75px;
-  width: auto;
-  max-width: 160px;
-  object-fit: contain;
-  border-radius: 8px;
-  filter: drop-shadow(0 2px 6px rgba(0, 0, 0, 0.04));
-  transition: filter 0.3s ease;
-}
-
-.brand-grid-label {
-  font-family: 'Cormorant Garamond', 'Playfair Display', Georgia, serif;
-  font-size: 1.05rem;
-  font-weight: 600;
-  letter-spacing: 2px;
-  color: #1A1A1A;
-  text-transform: uppercase;
-  margin-top: 10px;
-  transition: color 0.3s ease;
-}
-
-.brand-grid-item:hover .brand-grid-label {
-  color: #B8860B;
-}
-
-@media (max-width: 768px) {
-  .brand-grid-container {
-    grid-template-columns: repeat(3, 1fr);
-    gap: 20px;
-  }
-}
-
-/* ==========================================================================
-   8b. BRAND PERKS — light luxury 4-card grid
+   8. BRAND PERKS — light luxury 4-card grid
    Palette: Nude Beige #FAF8F5 | Charcoal #1A1A1A | Gold #D4AF37 | Ivory #FFFFFF
    ========================================================================== */
 .lurei-brand-perks-section {
@@ -2219,22 +2165,27 @@ select {
   gap: 0.6rem;
 }
 
+/* Circular badge — a subtle hairline ink ring on the footer's Warm Ivory
+   (#FBF8F2) background. 42px outer minus the 1px border (border-box) leaves a
+   40px content box, so the 22px logo sits with ~9px clearance per side.
+   The resting border is ink, not gold, so the gold hover has a real
+   transition to make. */
 .footer__social-link {
-  display: inline-flex;
+  display: flex;
   align-items: center;
   justify-content: center;
-  width: 40px;
-  height: 40px;
+  width: 42px;
+  height: 42px;
+  border: 1px solid rgba(26, 26, 26, 0.15);
   border-radius: 50%;
-  border: 1px solid var(--color-line);
-  color: #2C2C2C;
-  transition: background var(--transition), color var(--transition), border-color var(--transition);
+  background: none;
+  transition: transform var(--transition), border-color var(--transition);
 }
 
+/* Luxury micro-interaction: the hairline warms to gold as the badge lifts. */
 .footer__social-link:hover {
-  background: #D4AF37;
   border-color: #D4AF37;
-  color: var(--color-white);
+  transform: translateY(-2px);
 }
 
 .footer__legal {
@@ -3160,6 +3111,13 @@ box-shadow: -28px 0 70px -30px rgba(26, 26, 26, 0.4);
   box-shadow: 0 2px 6px rgba(0, 0, 0, 0.08);
 }
 
+.new-in-card__limited--sold-out {
+  background: #1C1B1A;
+  color: #FAF8F5;
+  border-color: #1C1B1A;
+  letter-spacing: 0.14em;
+}
+
 .new-in-card__body {
   display: flex;
   flex-direction: column;
@@ -3220,15 +3178,6 @@ box-shadow: -28px 0 70px -30px rgba(26, 26, 26, 0.4);
   border-radius: 999px;
   background: linear-gradient(90deg, #D4AF37, #EAD27C);
   transition: width 0.8s cubic-bezier(0.22, 0.61, 0.36, 1);
-}
-
-.new-in-card__stock-label {
-  margin: 0.5rem 0 0;
-  font-size: 0.7rem;
-  font-weight: 500;
-  letter-spacing: 0.6px;
-  text-transform: uppercase;
-  color: var(--color-gold-dark);
 }
 
 /* Reuse the exact Collections "Add to Cart" button — only keep bottom alignment */
@@ -3398,6 +3347,37 @@ box-shadow: -28px 0 70px -30px rgba(26, 26, 26, 0.4);
   max-width: 680px;
   margin: 0 auto;
   padding: 40px 20px;
+}
+
+/* Requested delivery date (optional checkout field) */
+.field__optional {
+  color: #8C877C;
+  font-weight: 500;
+  letter-spacing: 0.08em;
+  text-transform: none;
+}
+
+.field__note {
+  margin-top: 0.4rem;
+  font-size: 0.68rem;
+  font-weight: 400;
+  line-height: 1.5;
+  color: #6E695F;
+}
+
+input[type="date"].field__input {
+  font-family: var(--sans);
+  color: #1C1B1A;
+}
+
+input[type="date"].field__input::-webkit-calendar-picker-indicator {
+  cursor: pointer;
+  opacity: 0.55;
+  transition: opacity 0.2s ease;
+}
+
+input[type="date"].field__input::-webkit-calendar-picker-indicator:hover {
+  opacity: 1;
 }
 
 /* Payment options */
@@ -4827,3 +4807,4 @@ box-shadow: -28px 0 70px -30px rgba(26, 26, 26, 0.4);
     letter-spacing: 5px;
   }
 }
+

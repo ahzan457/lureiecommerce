@@ -1,0 +1,459 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="robots" content="noindex, nofollow" />
+  <title>Admin Sign In — LUREÍ Dubai</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@400;500;600;700&family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <script src="supabase-config.js"></script>
+  <style>
+    :root {
+      --bg: #FAF8F5;
+      --bg-alt: #F7F4EF;
+      --card: #FFFFFF;
+      --cream: #FAF0D7;
+      --border: #E8E2D9;
+      --ink: #1C1B1A;
+      --ink-strong: #111111;
+      --ink-head: #1A1A1A;
+      --label: #2C2C2C;
+      --muted: #5C584F;
+      --gold: #D4AF37;
+      --gold-warm: #C5A059;
+      --gold-deep: #8F7328;
+      --danger: #B4553F;
+      --serif: "Cormorant Garamond", Georgia, "Times New Roman", serif;
+      --sans: "Plus Jakarta Sans", system-ui, -apple-system, Arial, sans-serif;
+      --shadow-card: 0 8px 24px rgba(0, 0, 0, 0.03);
+      --shadow-soft: 0 24px 50px -30px rgba(28, 27, 26, 0.22);
+      --shadow-gold: 0 14px 30px -16px rgba(197, 160, 89, 0.5);
+      --ease: 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+    }
+
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    body {
+      min-height: 100vh;
+      display: grid;
+      place-items: center;
+      padding: 2.5rem 1.25rem;
+      font-family: var(--sans);
+      font-weight: 500;
+      color: var(--ink-strong);
+      background:
+        radial-gradient(760px 520px at 82% -8%, rgba(212, 175, 55, 0.12), transparent 62%),
+        radial-gradient(620px 460px at 8% 108%, rgba(197, 160, 89, 0.10), transparent 60%),
+        var(--bg);
+      -webkit-font-smoothing: antialiased;
+      -moz-osx-font-smoothing: grayscale;
+    }
+
+    /* ---------- Floating luxury card ---------- */
+    .auth-shell {
+      position: relative;
+      width: 100%;
+      max-width: 448px;
+      padding: 3.2rem 2.6rem 2.7rem;
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 18px;
+      box-shadow: var(--shadow-card), var(--shadow-soft);
+      text-align: center;
+    }
+
+    .auth-shell::before {
+      content: "";
+      position: absolute;
+      inset: 12px;
+      border: 1px solid rgba(197, 160, 89, 0.16);
+      border-radius: 12px;
+      pointer-events: none;
+    }
+
+    /* Thin gold crest above the logo */
+    .crest {
+      width: 46px;
+      height: 1px;
+      margin: 0 auto 1.5rem;
+      background: linear-gradient(90deg, transparent, var(--gold-warm), transparent);
+    }
+
+    .brand {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      line-height: 1;
+      margin-bottom: 2.1rem;
+    }
+
+    .brand__name {
+      font-family: var(--sans);
+      font-weight: 600;
+      font-size: 2rem;
+      letter-spacing: 9px;
+      text-indent: 9px;
+      text-transform: uppercase;
+      color: var(--ink-head);
+    }
+
+    .brand__accent { color: var(--gold-deep); font-weight: 600; }
+
+    .brand__sub {
+      font-family: var(--sans);
+      font-size: 0.6rem;
+      font-weight: 600;
+      letter-spacing: 0.4em;
+      text-indent: 0.4em;
+      text-transform: uppercase;
+      color: var(--label);
+      margin-top: 0.55rem;
+    }
+
+    .auth-title {
+      font-family: var(--serif);
+      font-size: 1.8rem;
+      font-weight: 700;
+      letter-spacing: 0.02em;
+      color: var(--ink-head);
+      margin-bottom: 0.55rem;
+    }
+
+    .auth-lead {
+      font-size: 0.84rem;
+      font-weight: 500;
+      line-height: 1.8;
+      color: var(--label);
+      max-width: 30ch;
+      margin: 0 auto 2.1rem;
+    }
+
+    /* ---------- Fields ---------- */
+    .field { margin-bottom: 1.15rem; text-align: left; }
+
+    .field__label {
+      display: block;
+      font-size: 0.63rem;
+      font-weight: 700;
+      letter-spacing: 0.22em;
+      text-transform: uppercase;
+      color: var(--label);
+      margin-bottom: 0.5rem;
+    }
+
+    .field__input {
+      width: 100%;
+      padding: 0.95rem 1.1rem;
+      font-family: var(--sans);
+      font-size: 0.92rem;
+      font-weight: 500;
+      color: var(--ink-strong);
+      background: var(--bg-alt);
+      border: 1px solid var(--border);
+      border-radius: 999px;
+      outline: none;
+      transition: border-color var(--ease), box-shadow var(--ease), background var(--ease);
+    }
+
+    .field__input::placeholder { color: #6E695F; }
+
+    .field__input:focus {
+      background: var(--card);
+      border-color: var(--gold-warm);
+      box-shadow: 0 0 0 4px rgba(212, 175, 55, 0.12);
+    }
+
+    .password-row { position: relative; }
+
+    .password-row .field__input { padding-right: 4.6rem; }
+
+    .password-toggle {
+      position: absolute;
+      right: 0.85rem;
+      top: 50%;
+      transform: translateY(-50%);
+      padding: 0.3rem 0.45rem;
+      font-family: var(--sans);
+      font-size: 0.6rem;
+      font-weight: 700;
+      letter-spacing: 0.16em;
+      text-transform: uppercase;
+      color: var(--label);
+      background: transparent;
+      border: 0;
+      cursor: pointer;
+      transition: color var(--ease);
+    }
+
+    .password-toggle:hover { color: var(--ink-strong); }
+
+    /* ---------- CTA ---------- */
+    .auth-submit {
+      width: 100%;
+      margin-top: 0.6rem;
+      padding: 1.05rem 1.6rem;
+      font-family: var(--sans);
+      font-size: 0.76rem;
+      font-weight: 700;
+      letter-spacing: 0.26em;
+      text-transform: uppercase;
+      color: var(--ink-strong);
+      background: linear-gradient(135deg, var(--gold-warm), var(--gold));
+      border: 1px solid var(--gold-deep);
+      border-radius: 999px;
+      cursor: pointer;
+      box-shadow: var(--shadow-gold);
+      transition: transform var(--ease), box-shadow var(--ease), filter var(--ease);
+    }
+
+    .auth-submit:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 20px 38px -18px rgba(197, 160, 89, 0.65);
+      filter: saturate(1.08) brightness(0.98);
+    }
+
+    .auth-submit:disabled { opacity: 0.8; cursor: progress; transform: none; }
+
+    .auth-status {
+      min-height: 1.2rem;
+      margin-top: 1.2rem;
+      font-size: 0.76rem;
+      font-weight: 700;
+      letter-spacing: 0.04em;
+      color: var(--danger);
+    }
+
+    .auth-status.is-success { color: #2F6350; }
+
+    /* ---------- Foot ---------- */
+    .auth-foot {
+      margin-top: 2.3rem;
+      padding-top: 1.5rem;
+      border-top: 1px solid var(--border);
+      font-size: 0.62rem;
+      font-weight: 700;
+      letter-spacing: 0.18em;
+      text-transform: uppercase;
+      color: var(--label);
+    }
+
+    .auth-foot a { color: var(--ink-head); text-decoration: none; transition: color var(--ease); }
+    .auth-foot a:hover { color: var(--gold-deep); text-decoration: underline; }
+
+    @media (max-width: 480px) {
+      .auth-shell { padding: 2.5rem 1.5rem 2.1rem; }
+      .brand { font-size: 2rem; }
+    }
+  </style>
+</head>
+<body>
+  <main class="auth-shell">
+    <div class="crest" aria-hidden="true"></div>
+    <h1 class="brand">
+      <span class="brand__name">Lure<span class="brand__accent">&iacute;</span></span>
+      <span class="brand__sub"><span style="font-weight: 600; letter-spacing: 2px;">UAE</span> &bull; ACCESSORIES</span>
+    </h1>
+
+    <h2 class="auth-title">Administrator Access</h2>
+    <p class="auth-lead">Sign in with authorised boutique credentials to manage orders, analytics and customers.</p>
+
+    <form id="admin-login-form" novalidate autocomplete="off" aria-autocomplete="none">
+      <div class="field">
+        <label class="field__label" for="admin-email">Email address</label>
+        <input
+          class="field__input"
+          type="email"
+          id="admin-email"
+          name="email"
+          value=""
+          placeholder="Enter admin email"
+          autocomplete="new-username"
+          aria-autocomplete="none"
+          required />
+      </div>
+
+      <div class="field">
+        <label class="field__label" for="admin-password">Password</label>
+        <div class="password-row">
+          <input
+            class="field__input"
+            type="password"
+            id="admin-password"
+            name="password"
+            value=""
+            placeholder="Enter your password"
+            autocomplete="new-password"
+            aria-autocomplete="none"
+            required />
+          <button class="password-toggle" type="button" id="password-toggle" aria-label="Show password">Show</button>
+        </div>
+      </div>
+
+      <button class="auth-submit" type="submit" id="admin-login-submit">Sign In</button>
+    </form>
+
+    <p class="auth-status" id="admin-login-status" role="status" aria-live="polite"></p>
+
+    <p class="auth-foot"><a href="index.html">&larr; Return to store</a></p>
+  </main>
+
+  <script>
+    (() => {
+      "use strict";
+
+      const backend = window.LureiBackend || null;
+      const backendReady = !!(backend && typeof backend.signIn === "function" && backend.isConfigured());
+
+      /* Session flag consumed by admin-dashboard.html for its access guard. */
+      const ADMIN_SESSION_KEY = "adminLoggedIn";
+
+      /* ------------------------------------------------------------------
+       * OFFLINE FALLBACK — dev mode only.
+       *
+       * This is a client-side check, so it is NOT a security control: the
+       * password below is readable by anyone who views source. It exists
+       * only so the dashboard can be opened before Supabase is set up.
+       *
+       * It is deliberately unreachable the moment Supabase is configured —
+       * see the guard in the submit handler. Do not "fix" that by making
+       * the fallback run alongside a configured backend, or the plaintext
+       * password below becomes a live way into real customer orders.
+       *
+       * The stored value is a SHA-256 hash, not the password itself, so
+       * this file never contains the plaintext secret.
+       * ------------------------------------------------------------------ */
+      const LOCAL_FALLBACK_EMAIL = "lureiaccessories.s925@gmail.com";
+      const LOCAL_FALLBACK_PASSWORD_SHA256 =
+        "e4a7f9f746fb6fd25121dd0443daf80742d5d8e96b87ae0bd54d6ee601d4c92f";
+
+      const sha256Hex = async (text) => {
+        if (!window.crypto || !window.crypto.subtle) return null;
+        const bytes = new TextEncoder().encode(text);
+        const digest = await window.crypto.subtle.digest("SHA-256", bytes);
+        return Array.from(new Uint8Array(digest))
+          .map((b) => b.toString(16).padStart(2, "0"))
+          .join("");
+      };
+
+      /* Constant-time-ish comparison, so a wrong password cannot be
+         discovered one character at a time from timing. */
+      const safeEqual = (a, b) => {
+        if (typeof a !== "string" || typeof b !== "string" || a.length !== b.length) return false;
+        let diff = 0;
+        for (let i = 0; i < a.length; i += 1) diff |= a.charCodeAt(i) ^ b.charCodeAt(i);
+        return diff === 0;
+      };
+
+      const verifyLocalFallback = async (email, password) => {
+        if (email !== LOCAL_FALLBACK_EMAIL) return false;
+        const digest = await sha256Hex(password);
+        if (!digest) return false;
+        return safeEqual(digest, LOCAL_FALLBACK_PASSWORD_SHA256);
+      };
+
+      const form = document.getElementById("admin-login-form");
+      const emailInput = document.getElementById("admin-email");
+      const passwordInput = document.getElementById("admin-password");
+      const statusEl = document.getElementById("admin-login-status");
+      const submitBtn = document.getElementById("admin-login-submit");
+      const toggleBtn = document.getElementById("password-toggle");
+
+      toggleBtn.addEventListener("click", () => {
+        const reveal = passwordInput.type === "password";
+        passwordInput.type = reveal ? "text" : "password";
+        toggleBtn.textContent = reveal ? "Hide" : "Show";
+        toggleBtn.setAttribute("aria-label", reveal ? "Hide password" : "Show password");
+      });
+
+      const setStatus = (message, isSuccess = false) => {
+        statusEl.textContent = message;
+        statusEl.classList.toggle("is-success", isSuccess);
+      };
+
+      /* Autofill writes straight to the live value, which form.reset() does not
+         touch, so both fields are blanked directly and their default values are
+         resynced to keep any later reset() from restoring old text. */
+      const blankFields = () => {
+        emailInput.value = "";
+        passwordInput.value = "";
+        emailInput.setAttribute("value", "");
+        passwordInput.setAttribute("value", "");
+      };
+
+      /* Opening the login screen always starts from a blank slate: any stale
+         admin session flag is dropped and both fields are emptied. */
+      const resetLoginForm = () => {
+        try {
+          sessionStorage.removeItem(ADMIN_SESSION_KEY);
+        } catch {}
+
+        form.reset();
+        blankFields();
+        setStatus("");
+      };
+
+      /* This script runs at the end of <body>, so the fields are already in the
+         document. Reset now, again on DOMContentLoaded, and once more shortly
+         after paint to catch a late autofill pass. */
+      resetLoginForm();
+      document.addEventListener("DOMContentLoaded", resetLoginForm);
+      window.setTimeout(blankFields, 100);
+
+      /* The back/forward cache restores previous field values on return. */
+      window.addEventListener("pageshow", resetLoginForm);
+
+      /* The password field must never be restored from a cached page. */
+      window.addEventListener("pagehide", () => {
+        passwordInput.value = "";
+      });
+
+      form.addEventListener("submit", (event) => {
+        event.preventDefault();
+
+        const email = emailInput.value.trim().toLowerCase();
+        const password = passwordInput.value;
+
+        if (!email || !password) {
+          setStatus("Invalid Admin Credentials!");
+          return;
+        }
+
+        submitBtn.disabled = true;
+        submitBtn.textContent = "AUTHENTICATING...";
+        setStatus("Verifying credentials...", true);
+
+        /* Single path, chosen once. When Supabase is configured the fallback
+           is never consulted, so the hashed dev credential cannot be used to
+           reach real orders. */
+        const attempt = backendReady
+          ? backend.signIn(email, password)
+          : verifyLocalFallback(email, password).then((ok) => {
+              if (!ok) throw new Error("Invalid Admin Credentials!");
+            });
+
+        attempt
+          .then(() => {
+            try {
+              sessionStorage.setItem(ADMIN_SESSION_KEY, "true");
+            } catch {
+              /* Private-mode storage failures still allow this tab to continue. */
+            }
+            setStatus("Verified. Opening dashboard...", true);
+            window.setTimeout(() => {
+              window.location.replace("admin-dashboard.html");
+            }, 550);
+          })
+          .catch((error) => {
+            submitBtn.disabled = false;
+            submitBtn.textContent = "Sign In";
+            setStatus((error && error.message) || "Invalid Admin Credentials!");
+            blankFields();
+            emailInput.focus();
+          });
+      });
+    })();
+  </script>
+</body>
+</html>
