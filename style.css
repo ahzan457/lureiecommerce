@@ -2328,14 +2328,25 @@ body:not(.admin-page) select {
 
 @media (max-width: 860px) {
   .nav {
-    position: fixed;
-    inset: 0;
+    /* Dropdown panel under the header. position:fixed is unusable here:
+       the navbar's backdrop-filter traps fixed descendants inside the
+       header box, collapsing the old inset:0 overlay to header height and
+       spilling the links over the hero. Absolute top:100% anchors the
+       panel below the bar in every scroll state instead. */
+    position: absolute;
+    top: 100%;
+    left: 0;
+    right: 0;
     background: var(--color-bg);
+    border-bottom: 1px solid var(--color-line);
+    box-shadow: 0 24px 48px -24px rgba(60, 40, 10, 0.25);
     display: flex;
     align-items: center;
     justify-content: center;
     flex-direction: column;
     padding: 2rem;
+    max-height: calc(100vh - 100%);
+    overflow-y: auto;
     opacity: 0;
     visibility: hidden;
     transform: translateY(-12px);
