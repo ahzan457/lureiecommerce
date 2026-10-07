@@ -4693,27 +4693,30 @@ Thank you!`;
       });
     }
 
-    /* Admin Access form — immediate authentication.
-       The boutique owner signs in with the admin address and password and is
-       taken straight to the dashboard: no credential round-trip, no backend
-       call, no error state. The only thing refused is a blank submission
-       (the form is novalidate, so `required` never fires on its own).
+    /* Admin Access form — credential-checked authentication.
+       Only the exact boutique-owner address + password is admitted and taken
+       straight to the dashboard. Anything else gets an alert and stays on
+       the storefront: no session flags, no redirect.
 
        NOTE: this is a client-side convenience gate, not a security control —
-       localStorage is readable by anyone with the browser. The dashboard
-       itself re-checks ADMIN_API_KEY server-side (see Code.gs), so a
-       hand-edited flag can reveal the shell but cannot read or write a
-       Sheet. Sign out in admin-dashboard.html drops the flag again. */
+       the password lives in this file, so anyone reading the source can see
+       it. The dashboard itself re-checks ADMIN_API_KEY server-side (see
+       Code.gs), so a hand-edited flag can reveal the shell but cannot read
+       or write a Sheet. Sign out in admin-dashboard.html drops the flag. */
+    const ADMIN_ACCESS_EMAIL = "lureiaccessories.s925@gmail.com";
+    const ADMIN_ACCESS_PASSWORD = "LuReI123";
     if (adminForm) {
       adminForm.addEventListener("submit", (e) => {
         e.preventDefault();
         const email = adminEmail ? adminEmail.value.trim() : "";
-        const pw = adminPw ? adminPw.value : "";
-        if (!email || !pw) return;
-
-        grantAdminSession(email);
-        closeAuthModal();
-        window.location.href = "admin-dashboard.html";
+        const pw = adminPw ? adminPw.value.trim() : "";
+        if (email === ADMIN_ACCESS_EMAIL && pw === ADMIN_ACCESS_PASSWORD) {
+          grantAdminSession(email);
+          closeAuthModal();
+          window.location.href = "admin-dashboard.html";
+          return;
+        }
+        alert("Invalid Admin Email or Password!");
       });
     }
 

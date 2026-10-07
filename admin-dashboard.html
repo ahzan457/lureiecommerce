@@ -1906,11 +1906,11 @@
            flag is honoured as well, so the storefront hand-off is not bounced
            back to the login page for a session the admin demonstrably holds. */
         if (!backend.getSession() && !hasAdminSession()) {
-          window.location.replace("admin-login.html");
+          window.location.replace("index.html");
           return;
         }
       } else if (!hasAdminSession()) {
-        window.location.replace("admin-login.html");
+        window.location.replace("index.html");
         return;
       }
 
