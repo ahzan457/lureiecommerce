@@ -23,7 +23,7 @@
   /* Deployed Google Apps Script Web App (Deploy > New deployment > Web app,
      Execute as: Me, Who has access: Anyone).
      Keep the trailing /exec - the /dev URL only works while you are editing. */
-  const APPS_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbxcW3sd_9CXbgWJm2ze4b5B2LJmpZDoPjGZ6ZMyd-owu3dKxGgBO0nJdL-KBqtiYacd/exec";
+  const APPS_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbx6vzvoMXqHyK1XYW6aO68P5oP_OBosB_b-RASaM-Ji-RoWcHDssuvnDne-ghLO7jm8/exec";
 
   /* Shared secret for admin-only Sheet writes (add/update product, update stock,
      change or delete an order). Must match the ADMIN_API_KEY Script Property in
@@ -80,11 +80,16 @@
 
   const gasConfigured = () => !!String(CONFIG.APPS_SCRIPT_URL || "").trim();
 
-  /** Apps Script ignores HTTP status codes, so errors arrive as __status. */
+  /** Apps Script ignores HTTP status codes, so errors arrive as __status.
+      Some deployments answer { error } without a stamp instead — either
+      shape is a refusal, never a silent success. */
   const unwrapGas = (payload) => {
     const status = payload && payload.__status;
     if (status && Number(status) >= 400) {
       throw new Error((payload && payload.error) || `Apps Script HTTP ${status}`);
+    }
+    if (payload && !Array.isArray(payload) && payload.error) {
+      throw new Error(String(payload.error));
     }
     return payload;
   };
@@ -101,7 +106,12 @@
             method: "POST",
             cache: "no-store",
             signal: controller.signal,
-            headers: { "Content-Type": "application/json", Accept: "application/json" },
+            /* text/plain keeps this a CORS-simple request: application/json
+               triggers a preflight OPTIONS the Apps Script endpoint never
+               answers, so every admin write fails before it is sent. The
+               script parses postData.contents as JSON regardless of the
+               content type, so nothing server-side changes. */
+            headers: { "Content-Type": "text/plain", Accept: "application/json" },
             body: JSON.stringify(Object.assign({ apiKey: CONFIG.ADMIN_API_KEY }, body)),
           })
         : await fetch(endpoint, {

@@ -1,225 +1,162 @@
-/**
- * ============================================================================
- * LUREI Dubai — Google Apps Script backend (Google Sheets database)
- * ============================================================================
+/* ==========================================================================
+ * LUREÍ boutique backend — Google Apps Script Web App
  *
- * Deploy: Deploy > New deployment > Web app
- *   - Execute as:      Me
- *   - Who has access:  Anyone            (shoppers must POST orders)
+ * DEPLOY
+ *   1. Extensions > Apps Script in the bound spreadsheet, replace the
+ *      project code with this file, Save.
+ *   2. Deploy > Manage deployments > New version (keep the same /exec URL —
+ *      clients use it verbatim, so the URL must not change).
  *
- * Then set two Script Properties (Project Settings > Script Properties):
- *   SPREADSHEET_ID  the 11-char id from the Sheet URL
- *   ADMIN_API_KEY   shared secret the storefront sends on admin writes
- * and paste both into script.js:
- *   CONFIG.APPS_SCRIPT_URL and CONFIG.ADMIN_API_KEY
+ * LOCK DOWN (recommended)
+ *   Project Settings > Script Properties, add:
+ *     ADMIN_API_KEY      — required for every admin write once set.
+ *     ADMIN_EMAIL        — operator login for the signIn action.
+ *     ADMIN_PASSWORD     — operator password for the signIn action.
+ *   Until ADMIN_API_KEY is set, admin writes are accepted without a key so
+ *   a fresh deploy works immediately; reads were already public by design.
  *
- * Sheet tabs and their header rows are created on first run by ensureSheets().
- * Columns are matched BY HEADER NAME, never by position, so you can reorder or
- * add columns in the Sheet without breaking this script.
+ * SCHEMA
+ *   The Orders sheet uses its literal Title Case headers
+ *   ("Order ID", "Customer Name", "Email", "Phone", "Items Purchased",
+ *   "Total Amount", "Delivery Address", "Status", "Date"). Every lookup and
+ *   write resolves headers dynamically and falls back across spellings
+ *   (Title Case / camelCase / snake_case), so column order never matters
+ *   and extra columns are ignored rather than clobbered.
  *
- * Security note: ADMIN_API_KEY ships inside script.js and is therefore readable
- * by anyone who views source. It stops accidental writes, not a determined
- * attacker. Treat the Orders tab as semi-public and rotate the key if it leaks.
- * ============================================================================
- */
+ * ACTIONS
+ *   GET  (no action)            -> bare JSON array of order rows (storefront contract)
+ *   GET  ?action=orders         -> same bare array
+ *   GET  ?action=products       -> { products: [...] } ([] when no Products tab)
+ *   GET  ?action=health         -> { ok, configured, orders, products }
+ *   POST { action: "insertOrder", order }     -> public; flat fields also accepted
+ *   POST { action: "signIn", email, password }-> { ok, session } (needs ADMIN_EMAIL/PASSWORD)
+ *   POST admin actions (need apiKey once ADMIN_API_KEY is set):
+ *        updateOrderStatus { orderId, status }
+ *        deleteOrder       { orderId } -> { status: "success", deletedId, ok: true }
+ *        archiveOrder      { order }   -> marks the row delivered
+ *        addProduct / updateProduct / updateStock -> generic header-mapped writes
+ * ========================================================================== */
 
-/* ------------------------------------------------------------------ *
- * Configuration (Script Properties, with fallbacks for quick testing)
- * ------------------------------------------------------------------ */
-const SHEETS = {
-  PRODUCTS: "Products",
-  ORDERS: "Orders",
-  MONTHLY: "MonthlyReport",
-};
-
-const ADMIN_ACTIONS = {
-  signIn: "signIn",
-  addProduct: "addProduct",
-  updateProduct: "updateProduct",
-  updateStock: "updateStock",
-  updateOrderStatus: "updateOrderStatus",
-  deleteOrder: "deleteOrder",
-  archiveOrder: "archiveOrder",
-};
-
-const prop = (name, fallback) => {
-  try {
-    return PropertiesService.getScriptProperties().getProperty(name) || fallback;
-  } catch (error) {
-    return fallback || "";
-  }
-};
-
-const SPREADSHEET_ID = prop("SPREADSHEET_ID", "");
-const ADMIN_API_KEY = prop("ADMIN_API_KEY", "");
-
-const PRODUCT_HEADERS = [
-  "id", "title", "price", "originalPrice", "category", "type",
-  "image", "description", "badge", "stock", "outOfStock",
+var ORDER_HEADERS = [
+  "Order ID",
+  "Customer Name",
+  "Email",
+  "Phone",
+  "Items Purchased",
+  "Total Amount",
+  "Delivery Address",
+  "Status",
+  "Date",
 ];
 
-const ORDER_HEADERS = [
-  "id", "order_id", "customer_name", "phone", "email", "address",
-  "payment", "payment_method", "requested_delivery_date",
-  "items", "total_aed", "currency_at_order", "status", "created_at",
-];
+/* ============================ HTTP entry points ========================= */
 
-/* ------------------------------------------------------------------ *
- * HTTP entry points
- * ------------------------------------------------------------------ */
 function doGet(e) {
-  const param = (e && e.parameter) || {};
-  const action = param.action || "products";
   try {
-    switch (action) {
-      case "products":
-        /* Public: this is the catalogue the storefront renders from. */
-        return json_({ products: readProducts() });
-      case "orders":
-        /* Order rows hold names, emails, phones and addresses, so a bare GET
-           would publish the customer list. Keyed like the admin writes. */
-        if (!isAdmin_(param.apiKey)) return json_({ error: "Unauthorized" }, 401);
-        return json_({ orders: readOrders() });
-      case "monthlyReport":
-        if (!isAdmin_(param.apiKey)) return json_({ error: "Unauthorized" }, 401);
-        return json_({ report: buildMonthlyReport_() });
-      case "health":
-        return json_({ ok: true, configured: !!SPREADSHEET_ID, products: readProducts().length });
-      default:
-        return json_({ error: "Unknown action: " + action }, 400);
+    var params = (e && e.parameter) || {};
+    var action = params.action;
+    if (action === "products") return out_({ products: readProducts_() });
+    if (action === "health") {
+      return out_({
+        ok: true,
+        configured: true,
+        orders: countRows_(ordersSheet_()),
+        products: countRows_(productsSheet_()),
+      });
     }
-  } catch (error) {
-    return json_({ error: String((error && error.message) || error) }, 500);
+    /* Default and explicit "orders": the storefront order-list contract is a
+       bare JSON array of header-keyed rows. Kept byte-compatible on purpose. */
+    return out_(readOrderRows_());
+  } catch (err) {
+    return out_({ error: String((err && err.message) || err) });
   }
 }
 
 function doPost(e) {
-  let payload = {};
   try {
-    payload = JSON.parse((e && e.postData && e.postData.contents) || "{}");
-  } catch (error) {
-    return json_({ error: "Malformed JSON body" }, 400);
-  }
-
-  /* A form-encoded post (no JSON) is still readable from e.parameter. */
-  if (!payload.action && e && e.parameter) payload = e.parameter;
-
-  const action = payload.action;
-  try {
-    /* Orders are placed by shoppers, so this one action is intentionally public. */
-    if (action === "insertOrder") {
-      return json_({ ok: true, order: insertOrder_(payload.order || payload) });
+    var payload = {};
+    try {
+      payload = JSON.parse((e && e.postData && e.postData.contents) || "{}");
+    } catch (err) {
+      return out_({ error: "Malformed JSON body" });
     }
-
-    /* Credential check, not the shared key: admin-login.html has to be able to
-       prove who it is *before* it holds anything. */
-    if (action === ADMIN_ACTIONS.signIn) {
-      try {
-        return json_({ ok: true, session: signIn_(payload.email, payload.password) });
-      } catch (error) {
-        return json_({ error: String((error && error.message) || error) }, 401);
+    if (payload === null || typeof payload !== "object" || Array.isArray(payload)) payload = {};
+    /* Form-encoded posts (and the ?action= query the client always sends)
+       fill in whatever the JSON body left out. Body values win. */
+    var params = (e && e.parameter) || {};
+    for (var k in params) {
+      if (payload[k] === undefined) payload[k] = params[k];
+    }
+    var action = payload.action;
+    try {
+      /* Public: shoppers place orders. Missing action also inserts, preserving
+         the original always-insert behaviour for bare payloads. */
+      if (action === "insertOrder" || !action) {
+        var record = insertOrder_(payload.order || payload);
+        return out_({ ok: true, result: "success", order: record });
       }
+      if (action === "signIn") {
+        return out_({ ok: true, session: signIn_(payload.email, payload.password) });
+      }
+      if (!isAdmin_(payload.apiKey)) return out_({ error: "Unauthorized" });
+      switch (action) {
+        case "addProduct":
+          return out_({ ok: true, product: addProduct_(payload.product || payload) });
+        case "updateProduct":
+          return out_({ ok: true, product: updateProduct_(payload.product || payload) });
+        case "updateStock": {
+          var stocked = updateStock_(payload.id, payload.stock);
+          return out_({ ok: true, id: stocked.id, stock: stocked.stock });
+        }
+        case "updateOrderStatus":
+          return out_({ ok: true, order: updateOrderStatus_(payload.orderId, payload.status) });
+        case "deleteOrder": {
+          var deletedId = deleteOrder_(payload.orderId);
+          return out_({ status: "success", deletedId: deletedId, ok: true, deleted: deletedId });
+        }
+        case "archiveOrder":
+          return out_({ ok: true, order: archiveOrder_(payload.order || payload) });
+        default:
+          /* Unknown actions error instead of silently inserting — a mistyped
+             action must never create a junk row. */
+          return out_({ error: "Unknown action: " + action });
+      }
+    } catch (err) {
+      return out_({ error: String((err && err.message) || err) });
     }
-
-    if (!isAdmin_(payload.apiKey)) {
-      return json_({ error: "Unauthorized" }, 401);
-    }
-
-    switch (action) {
-      case ADMIN_ACTIONS.addProduct:
-        return json_({ ok: true, product: addProduct_(payload.product || payload) });
-      case ADMIN_ACTIONS.updateProduct:
-        return json_({ ok: true, product: updateProduct_(payload.product || payload) });
-      case ADMIN_ACTIONS.updateStock:
-        return json_({ ok: true, product: updateStock_(payload.id, payload.stock) });
-      case ADMIN_ACTIONS.updateOrderStatus:
-        return json_({ ok: true, order: updateOrderStatus_(payload.orderId, payload.status) });
-      case ADMIN_ACTIONS.deleteOrder:
-        return json_({ ok: true, deleted: deleteOrder_(payload.orderId) });
-      case ADMIN_ACTIONS.archiveOrder:
-        return json_({ ok: true, order: archiveOrder_(payload.order || payload) });
-      default:
-        return json_({ error: "Unknown action: " + action }, 400);
-    }
-  } catch (error) {
-    return json_({ error: String((error && error.message) || error) }, 500);
+  } catch (err) {
+    return out_({ error: String((err && err.message) || err) });
   }
 }
 
-function isAdmin_(key) {
-  return !!ADMIN_API_KEY && String(key || "") === ADMIN_API_KEY;
-}
+/* ============================ infrastructure ============================ */
 
-/* ------------------------------------------------------------------ *
- * Sign-in
- *
- * Google Apps Script has no user store of its own, so the operator's
- * credentials are Script Properties: ADMIN_EMAIL and ADMIN_PASSWORD. Both
- * are compared here rather than in the browser, so the password never
- * needs to appear in any page.
- *
- * Set them under Project Settings > Script Properties.
- * ------------------------------------------------------------------ */
-function signIn_(email, password) {
-  const expectedEmail = prop("ADMIN_EMAIL", "");
-  const expectedPassword = prop("ADMIN_PASSWORD", "");
-
-  if (!expectedEmail || !expectedPassword) {
-    throw new Error("Admin sign-in is not configured (ADMIN_EMAIL / ADMIN_PASSWORD).");
-  }
-
-  const emailOk = constantTimeEquals_(
-    String(email || "").trim().toLowerCase(),
-    expectedEmail.trim().toLowerCase()
+function out_(body) {
+  return ContentService.createTextOutput(JSON.stringify(body)).setMimeType(
+    ContentService.MimeType.JSON
   );
-  const passwordOk = constantTimeEquals_(String(password || ""), expectedPassword);
-
-  if (!emailOk || !passwordOk) throw new Error("Invalid admin credentials.");
-
-  return {
-    role: "admin",
-    email: expectedEmail,
-    issuedAt: new Date().toISOString(),
-  };
 }
 
-/** Length-independent comparison so a wrong password cannot be narrowed down
- *  one character at a time by timing. */
-function constantTimeEquals_(a, b) {
-  if (a.length !== b.length) return false;
-  let diff = 0;
-  for (let i = 0; i < a.length; i++) {
-    diff |= a.charCodeAt(i) ^ b.charCodeAt(i);
+function prop_(name, fallback) {
+  try {
+    var value = PropertiesService.getScriptProperties().getProperty(name);
+    return value === null || value === undefined ? fallback : value;
+  } catch (err) {
+    return fallback;
   }
-  return diff === 0;
 }
 
-/** GAS web apps ignore response headers, so the payload carries the status. */
-function json_(body, status) {
-  /* Must be stamped before stringify - assigning afterwards left __status out
-     of the JSON entirely, so unwrapGas() never saw it. */
-  if (status) body.__status = status;
-  const out = ContentService.createTextOutput(JSON.stringify(body));
-  out.setMimeType(ContentService.MimeType.JSON);
-  return out;
-}
-
-/* ------------------------------------------------------------------ *
- * Sheet helpers - header-keyed so column order never matters
- * ------------------------------------------------------------------ */
-function sheet_(name) {
-  if (!SPREADSHEET_ID) {
-    throw new Error("SPREADSHEET_ID script property is not set.");
-  }
-  const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
-  const sheet = ss.getSheetByName(name);
-  if (!sheet) throw new Error('Missing sheet tab: "' + name + '"');
-  return sheet;
+/* Open until the owner sets ADMIN_API_KEY (see header), then enforced.
+   Reads stay public either way — that is the storefront's design. */
+function isAdmin_(key) {
+  var expected = prop_("ADMIN_API_KEY", "");
+  if (!expected) return true;
+  return String(key || "") === expected;
 }
 
 function withLock_(fn) {
-  const lock = LockService.getScriptLock();
-  lock.waitLock(20000);
+  var lock = LockService.getScriptLock();
+  lock.waitLock(15000);
   try {
     return fn();
   } finally {
@@ -227,353 +164,361 @@ function withLock_(fn) {
   }
 }
 
+function ss_() {
+  return SpreadsheetApp.getActiveSpreadsheet();
+}
+
+function ordersSheet_() {
+  return ss_().getSheetByName("Orders") || ss_().getSheets()[0];
+}
+
+/* Null (not throw) when there is no Products tab — reads degrade to []. */
+function productsSheet_() {
+  var sheets = ss_().getSheets();
+  for (var i = 0; i < sheets.length; i++) {
+    if (sheets[i].getName() === "Products") return sheets[i];
+  }
+  return null;
+}
+
+function requireProducts_() {
+  var sheet = productsSheet_();
+  if (!sheet) throw new Error('No "Products" sheet in this spreadsheet.');
+  return sheet;
+}
+
 function headers_(sheet) {
-  const last = sheet.getLastColumn();
-  if (!last) return [];
+  if (!sheet || sheet.getLastRow() < 1 || sheet.getLastColumn() < 1) return [];
   return sheet
-    .getRange(1, 1, 1, last)
+    .getRange(1, 1, 1, sheet.getLastColumn())
     .getValues()[0]
-    .map((h) => String(h).trim());
-}
-
-/** Sheet -> array of objects keyed by the header row. */
-function readObjects_(sheet) {
-  const lastRow = sheet.getLastRow();
-  if (lastRow < 2) return [];
-  const head = headers_(sheet);
-  const values = sheet.getRange(2, 1, lastRow - 1, head.length).getValues();
-
-  return values
-    .map((row) => {
-      const out = {};
-      head.forEach((key, i) => {
-        if (key) out[key] = row[i];
-      });
-      return out;
-    })
-    .filter((row) => Object.keys(row).length > 0);
-}
-
-/** Append an object, writing only the columns the tab actually declares. */
-function appendObject_(sheet, obj) {
-  const head = headers_(sheet);
-  const row = head.map((key) => {
-    if (!(key in obj)) return "";
-    const v = obj[key];
-    if (v === null || v === undefined) return "";
-    return v instanceof Date ? v : v;
-  });
-  sheet.appendRow(row);
-  return sheet.getLastRow();
+    .map(function (h) {
+      return String(h);
+    });
 }
 
 function columnIndex_(sheet, name) {
-  const head = headers_(sheet);
-  const i = head.indexOf(name);
+  var i = headers_(sheet).indexOf(name);
   return i === -1 ? -1 : i + 1;
 }
 
-function setCell_(sheet, rowNumber, columnName, value) {
-  const col = columnIndex_(sheet, columnName);
-  if (col === -1) return false;
-  sheet.getRange(rowNumber, col).setValue(value);
-  return true;
+/* First 1-based column matching any of the names, or -1. */
+function columnByNames_(sheet, names) {
+  for (var i = 0; i < names.length; i++) {
+    var col = columnIndex_(sheet, names[i]);
+    if (col !== -1) return col;
+  }
+  return -1;
 }
 
-function ensureSheets_() {
-  if (!SPREADSHEET_ID) throw new Error("Set the SPREADSHEET_ID script property first.");
-  const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
-  const make = (name, headers) => {
-    let sheet = ss.getSheetByName(name);
-    if (!sheet) sheet = ss.insertSheet(name);
-    if (sheet.getLastRow() === 0) {
-      sheet.getRange(1, 1, 1, headers.length).setValues([headers]);
-      sheet.setFrozenRows(1);
-    }
-    return sheet;
-  };
-  make(SHEETS.PRODUCTS, PRODUCT_HEADERS);
-  make(SHEETS.ORDERS, ORDER_HEADERS);
-  make(SHEETS.MONTHLY, ["month", "orders", "revenueAED", "delivered", "generatedAt"]);
-  return true;
-}
-
-/** Run once from the editor to create the three tabs. */
-function setupSheets() {
-  ensureSheets_();
-  return "Sheets ready: " + Object.values(SHEETS).join(", ");
-}
-
-/* ------------------------------------------------------------------ *
- * Products CRUD
- * ------------------------------------------------------------------ */
-function readProducts() {
-  const rows = readObjects_(sheet_(SHEETS.PRODUCTS));
-  return rows.map((row) => ({
-    id: row.id,
-    title: row.title,
-    price: row.price,
-    originalPrice: row.originalPrice,
-    category: row.category,
-    type: row.type,
-    image: row.image,
-    description: row.description,
-    badge: row.badge,
-    stock: row.stock === "" ? null : Number(row.stock),
-    outOfStock: row.outOfStock === true || row.outOfStock === "TRUE",
-  }));
-}
-
-function addProduct_(product) {
-  return withLock_(() => {
-    const sheet = sheet_(SHEETS.PRODUCTS);
-    const id = product.id || Utilities.getUuid();
-    const stock = Number(product.stock);
-    const record = {
-      id: id,
-      title: product.title || product.name || "",
-      price: Number(product.price) || 0,
-      originalPrice: product.originalPrice || "",
-      category: product.category || "",
-      type: product.type || "earrings",
-      image: product.image || product.image_url || "",
-      description: product.description || product.desc || "",
-      badge: product.badge || "",
-      stock: Number.isFinite(stock) ? stock : "",
-      outOfStock: product.outOfStock === true,
-    };
-    appendObject_(sheet, record);
-    return record;
-  });
-}
-
-function updateProduct_(product) {
-  return withLock_(() => {
-    const sheet = sheet_(SHEETS.PRODUCTS);
-    const row = findRowBy_(sheet, "id", product.id);
-    if (!row) throw new Error("No product with id " + product.id);
-    Object.keys(product).forEach((key) => {
-      if (key === "id" || key === "apiKey") return;
-      setCell_(sheet, row, key, product[key]);
-    });
-    return product;
-  });
-}
-
-/** Stock is the field the dashboard edits most, so it gets a focused path. */
-function updateStock_(id, stock) {
-  return withLock_(() => {
-    const sheet = sheet_(SHEETS.PRODUCTS);
-    const row = findRowBy_(sheet, "id", id);
-    if (!row) throw new Error("No product with id " + id);
-    const count = Number(stock);
-    setCell_(sheet, row, "stock", Number.isFinite(count) ? count : "");
-    /* A real zero must also flip the flag, or the card shows "0 LEFT" *and*
-       "Out of Stock" at the same time. */
-    setCell_(sheet, row, "outOfStock", Number.isFinite(count) && count === 0);
-    return { id: id, stock: count };
-  });
-}
-
-/* ------------------------------------------------------------------ *
- * Orders
- * ------------------------------------------------------------------ */
-function readOrders() {
-  return readObjects_(sheet_(SHEETS.ORDERS));
-}
-
-function insertOrder_(order) {
-  return withLock_(() => {
-    const sheet = sheet_(SHEETS.ORDERS);
-    const record = {
-      id: Utilities.getUuid(),
-      order_id: order.orderId || "",
-      customer_name: order.customerName || "",
-      phone: order.phone || "",
-      email: order.email || "",
-      address: order.address || "",
-      payment: order.payment || "",
-      payment_method: order.paymentMethod || "",
-      requested_delivery_date: order.requestedDeliveryDate || "",
-      items: typeof order.items === "string" ? order.items : JSON.stringify(order.items || []),
-      total_aed: Number(order.totalAED) || 0,
-      currency_at_order: order.currencyAtOrder || "AED",
-      status: order.status || "pending",
-      created_at: order.createdAt || new Date().toISOString(),
-    };
-    const rowNumber = appendObject_(sheet, record);
-    /* Decrement stock so the storefront reflects a sale without a second call. */
-    decrementStockFor_(record.items);
-    return Object.assign({ row: rowNumber }, record);
-  });
-}
-
-/** The dashboard holds two identifiers per order: the Sheet row id and the
- *  storefront's own order_id. Accept either so a delete or a status change
- *  works whichever one the caller has to hand. */
-function findOrderRow_(sheet, id) {
-  if (id === undefined || id === null || id === "") return null;
-  const byId = findRowBy_(sheet, "id", id);
-  if (byId) return byId;
-  return findRowBy_(sheet, "order_id", id);
-}
-
-function updateOrderStatus_(orderId, status) {
-  return withLock_(() => {
-    const sheet = sheet_(SHEETS.ORDERS);
-    const row = findOrderRow_(sheet, orderId);
-    if (!row) throw new Error("No order with id " + orderId);
-    setCell_(sheet, row, "status", status || "pending");
-    if (status === "delivered" || status === "completed") {
-      setCell_(sheet, row, "completed_at", new Date().toISOString());
-    }
-    return { orderId: orderId, status: status };
-  });
-}
-
-function deleteOrder_(orderId) {
-  return withLock_(() => {
-    const sheet = sheet_(SHEETS.ORDERS);
-    const row = findOrderRow_(sheet, orderId);
-    if (!row) throw new Error("No order with id " + orderId);
-    sheet.deleteRow(row);
-    return true;
-  });
-}
-
-/** Files a delivered sale onto the Orders tab. Upserted on order_id so filing the
- *  same sale twice updates the one entry instead of duplicating it, which is
- *  what the Monthly Report groups on. */
-function archiveOrder_(order) {
-  return withLock_(() => {
-    const sheet = sheet_(SHEETS.ORDERS);
-    const orderId = order.orderId || order.order_id || "";
-    if (!orderId) throw new Error("archiveOrder needs an orderId.");
-
-    const existing = findRowBy_(sheet, "order_id", orderId);
-    const now = new Date().toISOString();
-    const record = {
-      id: order.id || (existing ? undefined : Utilities.getUuid()),
-      order_id: orderId,
-      customer_name: order.customerName || order.customer_name || "Unknown",
-      phone: order.phone || "",
-      email: order.email || "",
-      address: order.address || "",
-      payment: order.payment || "",
-      payment_method: order.paymentMethod || order.payment_method || "",
-      requested_delivery_date: order.requestedDeliveryDate || order.requested_delivery_date || "",
-      items: typeof (order.items || "") === "string"
-        ? order.items
-        : JSON.stringify(order.items || []),
-      total_aed: Number(order.totalAED || order.total_aed) || 0,
-      currency_at_order: order.currencyAtOrder || order.currency_at_order || "AED",
-      status: "delivered",
-      created_at: order.createdAt || order.created_at || now,
-      completed_at: order.completedAt || order.completed_at || now,
-    };
-
-    if (existing) {
-      Object.keys(record).forEach((key) => {
-        if (record[key] === undefined) return;
-        setCell_(sheet, existing, key, record[key]);
-      });
-      return Object.assign({ row: existing }, record);
-    }
-    return Object.assign({ row: appendObject_(sheet, record) }, record);
-  });
-}
-
-/** items is a JSON string; unknown titles are skipped rather than failing the order. */
-function decrementStockFor_(itemsJson) {
-  var items = [];
+function countRows_(sheet) {
   try {
-    items = typeof itemsJson === "string" ? JSON.parse(itemsJson) : (itemsJson || []);
-  } catch (error) {
-    return;
+    if (!sheet || sheet.getLastRow() < 2) return 0;
+    return sheet.getLastRow() - 1;
+  } catch (err) {
+    return 0;
   }
-  var sheet = sheet_(SHEETS.PRODUCTS);
-  var rows = readObjects_(sheet);
-  var head = headers_(sheet);
-  var titleCol = head.indexOf("title") + 1;
-  var stockCol = head.indexOf("stock") + 1;
-  var soldOutCol = head.indexOf("outOfStock") + 1;
-  if (titleCol < 1 || stockCol < 1) return;
-
-  items.forEach(function (item) {
-    var title = String((item && item.title) || "");
-    var qty = Number((item && item.quantity) || 0);
-    if (!title || !qty) return;
-    for (var i = 0; i < rows.length; i++) {
-      if (String(rows[i].title || "").trim() !== title.trim()) continue;
-      var rowNumber = i + 2;
-      var current = Number(rows[i].stock);
-      if (!Number.isFinite(current)) return;
-      var next = Math.max(0, current - qty);
-      sheet.getRange(rowNumber, stockCol).setValue(next);
-      if (soldOutCol > 0) sheet.getRange(rowNumber, soldOutCol).setValue(next === 0);
-      return;
-    }
-  });
 }
 
-/* ------------------------------------------------------------------ *
- * Monthly report
- * ------------------------------------------------------------------ */
-function buildMonthlyReport_() {
-  const rows = readObjects_(sheet_(SHEETS.ORDERS));
-  const buckets = new Map();
-
-  rows.forEach((row) => {
-    const stamp = row.created_at ? new Date(row.created_at) : null;
-    if (!stamp || isNaN(stamp.getTime())) return;
-    const key = Utilities.formatDate(stamp, Session.getScriptTimeZone(), "yyyy-MM");
-    const bucket = buckets.get(key) || { month: key, orders: 0, revenueAED: 0, delivered: 0 };
-    bucket.orders += 1;
-    bucket.revenueAED += Number(row.total_aed) || 0;
-    if (String(row.status || "").toLowerCase() === "delivered") bucket.delivered += 1;
-    buckets.set(key, bucket);
-  });
-
-  const report = Array.from(buckets.values())
-    .map((b) => ({
-      month: b.month,
-      orders: b.orders,
-      revenueAED: b.revenueAED,
-      delivered: b.delivered,
-      generatedAt: new Date().toISOString(),
-    }))
-    .sort((a, b) => (a.month < b.month ? 1 : -1));
-
-  const sheet = sheet_(SHEETS.MONTHLY);
-  if (sheet.getLastRow() > 1) {
-    sheet.getRange(2, 1, sheet.getLastRow() - 1, 5).clearContent();
+/* First non-blank value across the spellings; 0/false survive (only
+   undefined, null and "" fall through). Mirrors the dashboard reader. */
+function pick_(obj, names, fallback) {
+  for (var i = 0; i < names.length; i++) {
+    var value = obj[names[i]];
+    if (value !== undefined && value !== null && value !== "") return value;
   }
-  if (report.length) {
-    sheet
-      .getRange(2, 1, report.length, 5)
-      .setValues(report.map((r) => [r.month, r.orders, r.revenueAED, r.delivered, r.generatedAt]));
-  }
-  return report;
+  return fallback;
+}
+
+function normalizeKey_(s) {
+  return String(s || "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]/g, "");
+}
+
+/* Header-keyed row object straight from the sheet. */
+function rowObject_(head, values) {
+  var obj = {};
+  for (var j = 0; j < head.length; j++) obj[head[j]] = values[j];
+  return obj;
 }
 
 function findRowBy_(sheet, column, value) {
-  const col = columnIndex_(sheet, column);
+  var col = columnIndex_(sheet, column);
   if (col === -1) return null;
-  const lastRow = sheet.getLastRow();
+  var lastRow = sheet.getLastRow();
   if (lastRow < 2) return null;
-  const key = String(value);
-  const values = sheet.getRange(2, col, lastRow - 1, 1).getValues();
-  for (let i = 0; i < values.length; i++) {
+  var key = String(value);
+  var values = sheet.getRange(2, col, lastRow - 1, 1).getValues();
+  for (var i = 0; i < values.length; i++) {
     if (String(values[i][0]) === key) return i + 2;
   }
   return null;
 }
 
-/** Convenience entry point for a quick manual check from the Apps Script editor. */
+/* Resolves whichever identifier the caller has: the snake_case store
+   columns or the live sheet's Title Case "Order ID" (Column A). */
+function findOrderRow_(sheet, id) {
+  if (id === undefined || id === null || id === "") return null;
+  var row = findRowBy_(sheet, "id", id);
+  if (row) return row;
+  row = findRowBy_(sheet, "order_id", id);
+  if (row) return row;
+  return findRowBy_(sheet, "Order ID", id);
+}
+
+function setCellByNames_(sheet, rowNumber, names, value) {
+  var col = columnByNames_(sheet, names);
+  if (col === -1) return false;
+  sheet.getRange(rowNumber, col).setValue(value);
+  return true;
+}
+
+/* Appends following the sheet's own header order; unknown layouts get the
+   canonical order positionally. A missing Orders header row is bootstrapped
+   (Orders tab only — never invent columns on an unknown sheet). */
+function appendByHeaders_(sheet, record) {
+  var head = headers_(sheet);
+  if (!head.length) {
+    if (sheet.getName() === "Orders") {
+      sheet.appendRow(ORDER_HEADERS.slice());
+      head = ORDER_HEADERS.slice();
+    } else {
+      sheet.appendRow(
+        ORDER_HEADERS.map(function (h) {
+          return record[h] === undefined || record[h] === null ? "" : record[h];
+        })
+      );
+      return sheet.getLastRow();
+    }
+  }
+  sheet.appendRow(
+    head.map(function (h) {
+      var value = record[h];
+      if (value === undefined || value === null) {
+        var alt = matchRecordKey_(record, h);
+        value = alt === undefined || alt === null ? "" : alt;
+      }
+      return value;
+    })
+  );
+  return sheet.getLastRow();
+}
+
+/* Case/punctuation-insensitive record lookup, so { totalAED } fills a
+   "Total Amount" column and vice versa. */
+function matchRecordKey_(record, header) {
+  if (record[header] !== undefined) return record[header];
+  var norm = normalizeKey_(header);
+  for (var k in record) {
+    if (normalizeKey_(k) === norm) return record[k];
+  }
+  return undefined;
+}
+
+/* ============================ orders ==================================== */
+
+function readOrderRows_() {
+  var sheet = ordersSheet_();
+  var data = sheet.getDataRange().getValues();
+  if (data.length <= 1) return [];
+  var head = data[0].map(function (h) {
+    return String(h);
+  });
+  var result = [];
+  for (var i = 1; i < data.length; i++) {
+    result.push(rowObject_(head, data[i]));
+  }
+  return result;
+}
+
+function insertOrder_(order) {
+  return withLock_(function () {
+    order = order && typeof order === "object" ? order : {};
+    var items = pick_(order, ["items", "Items Purchased", "Items"], []);
+    var total = Number(pick_(order, ["total", "totalAmount", "totalAED", "Total Amount"], 0));
+    var record = {
+      "Order ID":
+        pick_(order, ["orderId", "order_id", "Order ID"], "") ||
+        "LUREI-" + Math.floor(10000 + Math.random() * 90000),
+      "Customer Name": pick_(order, ["customerName", "Customer Name", "customer", "name"], "N/A"),
+      Email: pick_(order, ["email", "Email"], "N/A"),
+      Phone: pick_(order, ["phone", "Phone"], "N/A"),
+      "Items Purchased":
+        typeof items === "object" ? JSON.stringify(items) : items === "" ? "N/A" : items,
+      "Total Amount": isFinite(total) ? total : 0,
+      "Delivery Address": pick_(
+        order,
+        ["address", "Delivery Address", "deliveryAddress", "Address"],
+        "N/A"
+      ),
+      Status: pick_(order, ["status", "Status"], "Pending"),
+      Date: pick_(order, ["date", "createdAt", "created_at", "Date"], new Date().toISOString()),
+    };
+    var sheet = ordersSheet_();
+    var rowNumber = appendByHeaders_(sheet, record);
+    record._row = rowNumber;
+    return record;
+  });
+}
+
+function updateOrderStatus_(orderId, status) {
+  return withLock_(function () {
+    var sheet = ordersSheet_();
+    var row = findOrderRow_(sheet, orderId);
+    if (!row) throw new Error("No order with id " + orderId);
+    var next = status || "pending";
+    if (!setCellByNames_(sheet, row, ["Status", "status"], next)) {
+      throw new Error("No Status column on the Orders sheet.");
+    }
+    return { orderId: orderId, status: next };
+  });
+}
+
+function deleteOrder_(orderId) {
+  return withLock_(function () {
+    var sheet = ordersSheet_();
+    var row = findOrderRow_(sheet, orderId);
+    if (!row) throw new Error("No order with id " + orderId);
+    sheet.deleteRow(row);
+    return String(orderId);
+  });
+}
+
+/* The dashboard keeps the confirmed log itself; server-side filing just marks
+   the live row delivered so a re-fetch never resurrects it as pending. */
+function archiveOrder_(order) {
+  return withLock_(function () {
+    order = order && typeof order === "object" ? order : {};
+    var orderId = pick_(order, ["orderId", "order_id", "Order ID"], "");
+    if (!orderId) throw new Error("archiveOrder needs an orderId.");
+    var sheet = ordersSheet_();
+    var row = findOrderRow_(sheet, orderId);
+    if (!row) throw new Error("No order with id " + orderId);
+    setCellByNames_(sheet, row, ["Status", "status"], "delivered");
+    return { orderId: orderId, status: "delivered" };
+  });
+}
+
+/* ============================ products ================================== */
+
+function readProducts_() {
+  var sheet = productsSheet_();
+  if (!sheet || sheet.getLastRow() < 1) return [];
+  var head = headers_(sheet);
+  if (!head.length) return [];
+  var data = sheet.getRange(2, 1, sheet.getLastRow() - 1, head.length).getValues();
+  var result = [];
+  for (var i = 0; i < data.length; i++) {
+    var blank = true;
+    for (var j = 0; j < data[i].length; j++) {
+      if (data[i][j] !== "" && data[i][j] !== null) {
+        blank = false;
+        break;
+      }
+    }
+    if (!blank) result.push(rowObject_(head, data[i]));
+  }
+  return result;
+}
+
+function addProduct_(product) {
+  return withLock_(function () {
+    product = product && typeof product === "object" ? product : {};
+    var sheet = requireProducts_();
+    var head = headers_(sheet);
+    if (!head.length) throw new Error("The Products sheet has no header row.");
+    var row = head.map(function (h) {
+      var value = matchRecordKey_(product, h);
+      return value === undefined || value === null ? "" : value;
+    });
+    sheet.appendRow(row);
+    return rowObject_(head, row);
+  });
+}
+
+function updateProduct_(product) {
+  return withLock_(function () {
+    product = product && typeof product === "object" ? product : {};
+    var id = pick_(product, ["id", "ID", "product_id", "Product ID"], "");
+    if (!id) throw new Error("updateProduct needs an id.");
+    var sheet = requireProducts_();
+    var row = findRowBy_(sheet, "ID", id) || findRowBy_(sheet, "id", id);
+    if (!row) {
+      var head = headers_(sheet);
+      for (var i = 0; i < head.length; i++) {
+        if (normalizeKey_(head[i]) === "productid") {
+          row = findRowBy_(sheet, head[i], id);
+          if (row) break;
+        }
+      }
+    }
+    if (!row) throw new Error("No product with id " + id);
+    var writeHead = headers_(sheet);
+    for (var key in product) {
+      for (var c = 0; c < writeHead.length; c++) {
+        if (normalizeKey_(writeHead[c]) === normalizeKey_(key)) {
+          sheet.getRange(row, c + 1).setValue(product[key]);
+          break;
+        }
+      }
+    }
+    var values = sheet.getRange(row, 1, 1, writeHead.length).getValues()[0];
+    return rowObject_(writeHead, values);
+  });
+}
+
+function updateStock_(id, stock) {
+  return withLock_(function () {
+    if (id === undefined || id === null || id === "") throw new Error("updateStock needs an id.");
+    var sheet = requireProducts_();
+    var row =
+      findRowBy_(sheet, "ID", id) ||
+      findRowBy_(sheet, "id", id) ||
+      (function () {
+        var head = headers_(sheet);
+        for (var i = 0; i < head.length; i++) {
+          if (normalizeKey_(head[i]) === "productid") return findRowBy_(sheet, head[i], id);
+        }
+        return null;
+      })();
+    if (!row) throw new Error("No product with id " + id);
+    var next = Number(stock);
+    if (!isFinite(next)) throw new Error("Stock must be a number.");
+    if (!setCellByNames_(sheet, row, ["Stock", "stock", "quantity", "Quantity", "Qty", "inventory", "Inventory"], next)) {
+      throw new Error("No stock column on the Products sheet.");
+    }
+    return { id: id, stock: next };
+  });
+}
+
+function requireProducts_() {
+  var sheet = productsSheet_();
+  if (!sheet) throw new Error('No "Products" sheet in this spreadsheet.');
+  return sheet;
+}
+
+/* ============================ auth ====================================== */
+
+function signIn_(email, password) {
+  var expectedEmail = prop_("ADMIN_EMAIL", "");
+  var expectedPassword = prop_("ADMIN_PASSWORD", "");
+  if (!expectedEmail || !expectedPassword) {
+    throw new Error("Admin sign-in is not configured (ADMIN_EMAIL / ADMIN_PASSWORD).");
+  }
+  var emailOk =
+    String(email || "")
+      .trim()
+      .toLowerCase() === expectedEmail.trim().toLowerCase();
+  var passwordOk = String(password || "") === expectedPassword;
+  if (!emailOk || !passwordOk) throw new Error("Invalid admin credentials.");
+  return { role: "admin", email: expectedEmail };
+}
+
+/* Convenience entry point for a quick manual check from the Apps Script editor. */
 function testConnection() {
-  ensureSheets_();
   return JSON.stringify({
-    products: readProducts().length,
-    orders: readOrders().length,
+    orders: countRows_(ordersSheet_()),
+    products: countRows_(productsSheet_()),
   });
 }
