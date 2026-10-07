@@ -23,7 +23,7 @@
   /* Deployed Google Apps Script Web App (Deploy > New deployment > Web app,
      Execute as: Me, Who has access: Anyone).
      Keep the trailing /exec - the /dev URL only works while you are editing. */
-  const APPS_SCRIPT_URL = "";
+  const APPS_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbxcW3sd_9CXbgWJm2ze4b5B2LJmpZDoPjGZ6ZMyd-owu3dKxGgBO0nJdL-KBqtiYacd/exec";
 
   /* Shared secret for admin-only Sheet writes (add/update product, update stock,
      change or delete an order). Must match the ADMIN_API_KEY Script Property in
@@ -164,17 +164,70 @@
       return data;
     },
 
-    /** Shopper checkout — public by design, so this sends no api key. */
+    /* Shopper checkout — public by design, so this sends no api key. Sent
+       fire-and-forget with mode: "no-cors" so the browser never blocks the
+       save on a CORS preflight (Apps Script web apps don't answer OPTIONS).
+       A no-cors response is opaque — status and body are hidden — so
+       delivery can't be confirmed here and the body is never parsed. The
+       order is already safe in localStorage; the Sheet write resolves
+       silently and only a network failure rejects. */
     insertOrder: async (order) => {
       if (!gasConfigured()) {
         return { skipped: true, reason: "not-configured" };
       }
-      const payload = await fetch(gasEndpoint("insertOrder"), {
+      const record = order && typeof order === "object" ? order : {};
+      const itemsArray = Array.isArray(record.items) ? record.items : [];
+      let itemsText = "";
+      try {
+        itemsText = JSON.stringify(itemsArray);
+      } catch {
+        itemsText = "";
+      }
+      /* Canonical nested record plus flat aliases beside it. Insert variants
+         read top-level keys under different spellings ("Total Amount" vs
+         totalAmount vs total, "Delivery Address" vs deliveryAddress, ...),
+         and every reader ignores keys it doesn't know — so the superset can
+         only add matches, never break the established action+order contract.
+         IDs stay timestamp-based (a 5-digit random has a 90k space and
+         collides fast); dates stay ISO (locale strings don't parse
+         reliably); status stays lowercase like every other reader. */
+      const payload = {
+        action: "insertOrder",
+        order: record,
+        orderId: record.orderId,
+        "Order ID": record.orderId,
+        customerName: record.customerName,
+        "Customer Name": record.customerName,
+        customer: record.customerName,
+        email: record.email,
+        "Email": record.email,
+        phone: record.phone,
+        "Phone": record.phone,
+        items: itemsArray,
+        "Items Purchased": itemsText,
+        Items: itemsText,
+        totalAED: record.totalAED,
+        total: record.totalAED,
+        "Total Amount": record.totalAED,
+        totalAmount: record.totalAED,
+        address: record.address,
+        "Delivery Address": record.address,
+        deliveryAddress: record.address,
+        status: record.status,
+        "Status": record.status,
+        date: record.date || record.createdAt,
+        createdAt: record.createdAt,
+        "Date": record.date || record.createdAt,
+        payment: record.payment,
+        paymentMethod: record.paymentMethod,
+      };
+      await fetch(gasEndpoint("insertOrder"), {
         method: "POST",
-        headers: { "Content-Type": "application/json", Accept: "application/json" },
-        body: JSON.stringify({ action: "insertOrder", order }),
+        mode: "no-cors",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
       });
-      return unwrapGas(await payload.json());
+      return { ok: true, unconfirmed: true };
     },
 
     /** Public: this is the catalogue the storefront renders from. */
@@ -184,9 +237,28 @@
       return Array.isArray(data.products) ? data.products : [];
     },
 
+    /* Public read by design: the order list is fetched with no ADMIN_API_KEY
+       requirement — a missing or empty key must never block this GET. The
+       key is only ever attached to admin writes (status, delete, archive).
+       Direct Apps Script call: a standard GET to APPS_SCRIPT_URL with no
+       AbortController signals and no client wrappers. */
     fetchOrders: async () => {
       if (!gasConfigured()) return [];
-      const data = unwrapGas(await gasRequest("orders", null, true));
+      const endpoint = gasEndpoint("orders");
+      const response = await fetch(endpoint, {
+        method: "GET",
+        cache: "no-store",
+        headers: { Accept: "application/json" },
+      });
+      if (!response.ok) {
+        throw new Error(`Google Apps Script responded with HTTP ${response.status}`);
+      }
+      const data = unwrapGas(await response.json());
+      /* The deployed Web App returns the order list as a bare JSON array of
+         sheet rows; local envelope builds answer { orders: [...] }. Accept
+         both, and surface an error payload instead of a silent blank table. */
+      if (Array.isArray(data)) return data;
+      if (data && data.error) throw new Error(String(data.error));
       return Array.isArray(data.orders) ? data.orders : [];
     },
 
@@ -343,12 +415,10 @@
   };
 
   /* Stock is a whole number of pieces, or null when nobody has counted the
-     shelf yet. null is deliberately NOT 0: the built-in catalogue ships with no
-     counts, so collapsing "unknown" into zero would publish every seeded piece
-     as sold out. Only an explicit 0 (or the older outOfStock flag) means empty.
-
-     The parse is strict for the same reason: toNumber() strips letters, so it
-     reads "n/a" or "three" as 0 and would empty a shelf nobody touched. */
+     shelf yet. A 0 is a real count that means "ample stock available" — it is
+     deliberately NOT a sold-out signal, so nothing below may infer the flag
+     from it. The parse is strict so toNumber()-style stripping cannot turn
+     "n/a" or "three" into a count at all. */
   var stockFor = function (value) {
     var num = null;
 
@@ -406,10 +476,10 @@
     product.description = String(raw.description || raw.desc || "").trim();
     product.badge = raw.badge ? String(raw.badge).trim() : "";
     product.stock = stockFor(raw.stock);
-    /* A real zero empties the shelf no matter how the flag was set, so the
-       count and the boolean can never disagree and show a "3 LEFT" pill on a
-       sold-out card. */
-    product.outOfStock = product.stock === 0 || raw.outOfStock === true;
+    /* The count and the flag are now independent. A count of 0 means "ample /
+       untallied" and must never be laundered into a sold-out state here, so
+       only the stored boolean decides that. */
+    product.outOfStock = raw.outOfStock === true;
     return product;
   };
 
@@ -683,7 +753,7 @@
         description: input.description,
         badge: input.badge,
         stock: stockFor(input.stock),
-        outOfStock: input.outOfStock === true || stockFor(input.stock) === 0,
+        outOfStock: input.outOfStock === true,
       });
 
       if (!isUsable(product)) {
@@ -718,13 +788,16 @@
       return store.update(id, { outOfStock: outOfStock === true });
     },
 
-    /* The count is the source of truth: dropping it to 0 takes the piece off
-       sale, and any number above 0 puts it straight back. Both land in one
-       write so a storefront tab can never see "0 left" and "add to cart" in the
-       same render. */
-    setStock: function (id, stock) {
-      var count = stockFor(stock);
-      return store.update(id, { stock: count, outOfStock: count === 0 });
+    /* Writes the count only. The sold-out flag is never inferred from the number —
+       a 0 means ample stock, so the flag is owned solely by the admin's
+       explicit OUT OF STOCK toggle via setOutOfStock(). Callers that are that
+       toggle pass the third argument to land the count and the flag in a single
+       write, so a storefront tab can never see a stale count beside a stale
+       badge. */
+    setStock: function (id, stock, outOfStock) {
+      var patch = { stock: stockFor(stock) };
+      if (typeof outOfStock === "boolean") patch.outOfStock = outOfStock;
+      return store.update(id, patch);
     },
 
     /* Hard delete. Recorded as a tombstone as well, because the built-in
@@ -865,6 +938,16 @@ var mounted = false;
     window.location.reload();
   };
 
+  /* EXIT & SAVE from the dashboard-launched editor: every SAVE already
+     persisted to localStorage + backend (store.commit), so exiting only
+     clears the edit-session flag and returns to the Boutique Overview.
+     It never navigates to index.html or the public site. leaveEditMode
+     above stays for the unauthorized-mount path, which must remain here. */
+  var returnToDashboard = function () {
+    catalogue.exitEditMode();
+    window.location.href = "admin-dashboard.html";
+  };
+
   var buildEditBar = function () {
     var bar = document.createElement("div");
     bar.className = "lurei-edit-bar";
@@ -876,7 +959,7 @@ var mounted = false;
       '<span class="lurei-edit-bar__hint">Every change saves to your live catalogue instantly</span>' +
       '<button class="lurei-edit-bar__exit" type="button">EXIT &amp; SAVE</button>';
 
-    bar.querySelector(".lurei-edit-bar__exit").addEventListener("click", leaveEditMode);
+    bar.querySelector(".lurei-edit-bar__exit").addEventListener("click", returnToDashboard);
     return bar;
   };
 
@@ -897,17 +980,23 @@ var mounted = false;
 
   var cardToolsHTML = function (product) {
     var soldOut = product.outOfStock === true;
-    /* The count is read here so the admin can see the number that is actually
-       driving the storefront pill, not just whether the piece is hidden.
-       "1 LEFT" reads correctly as its own singular, so no plural branch. */
+    /* Read-only mirror of the storefront pill, and it mirrors it exactly: a
+       positive count becomes "STOCK n LEFT", the admin's sold-out flag becomes
+       "OUT OF STOCK", and a 0 or absent count produces no chip at all — the
+       storefront shows nothing for those, so the editor must not invent a
+       label the shopper never sees. */
     var count =
-      typeof product.stock === "number" && product.stock >= 0 ? product.stock + " LEFT" : "";
+      typeof product.stock === "number" && product.stock > 0 ? product.stock + " LEFT" : "";
+    var stockChip =
+      soldOut || count
+        ? '<span class="lurei-card-stock' + (soldOut ? " is-warn" : "") + '">' +
+          (soldOut ? "OUT OF STOCK" : "STOCK " + count) +
+        "</span>"
+        : "";
 
     return (
       '<div class="lurei-card-tools" data-lurei-tools>' +
-        '<span class="lurei-card-stock' + (soldOut ? " is-warn" : "") + '">' +
-          (soldOut ? "OUT OF STOCK" : count ? "STOCK " + count : "STOCK NOT TRACKED") +
-        "</span>" +
+        stockChip +
         '<button class="lurei-card-btn' + (soldOut ? " is-warn" : "") + '" type="button" ' +
           'data-lurei-action="stock" data-id="' + escapeHTML(product.id) + '">' +
           (soldOut ? "RESTOCK" : "REMOVE / OUT OF STOCK") +
@@ -934,12 +1023,20 @@ var mounted = false;
 
     if (stockLabel) {
       var count =
-        typeof product.stock === "number" && product.stock >= 0
+        typeof product.stock === "number" && product.stock > 0
           ? product.stock + " LEFT"
           : "";
-      var label = soldOut ? "OUT OF STOCK" : count ? "STOCK " + count : "STOCK NOT TRACKED";
-      if (stockLabel.textContent !== label) stockLabel.textContent = label;
-      stockLabel.classList.toggle("is-warn", soldOut);
+      /* Dropped rather than blanked: the chip carries a background, padding and
+         a gold rule, so an empty span would leave a stray box on the card. The
+         tools block is rebuilt wholesale on the next catalogue render, so the
+         chip returns on its own once a count comes back. */
+      if (!soldOut && !count) {
+        stockLabel.remove();
+      } else {
+        var label = soldOut ? "OUT OF STOCK" : "STOCK " + count;
+        if (stockLabel.textContent !== label) stockLabel.textContent = label;
+        stockLabel.classList.toggle("is-warn", soldOut);
+      }
     }
 
     if (stockBtn) {
@@ -981,7 +1078,7 @@ var mounted = false;
         '<span class="lurei-field__label">Stock count</span>' +
         '<input class="lurei-field__input" type="number" data-lurei-stock min="0" step="1" value="' +
           (product.stock === null || product.stock === undefined ? "" : escapeHTML(product.stock)) + '" />' +
-        '<span class="lurei-field__hint">Empty = untracked. 0 = Out of Stock.</span>' +
+        '<span class="lurei-field__hint">0 = Unlimited / Available Stock. Use OUT OF STOCK button to toggle availability.</span>' +
       "</label>" +
       '<label class="lurei-field">' +
         '<span class="lurei-field__label">Category</span>' +
@@ -1008,16 +1105,21 @@ var mounted = false;
         "DELETE PRODUCT PERMANENTLY" +
       "</button>";
 
-    var save = function () {
+    /* Bound to the SAVE click and to Enter, so it takes the event defensively: the
+       button is type="button" today, but if this markup ever sits inside a form
+       the default submit would navigate the page out from under the save. */
+    var save = function (event) {
+      if (event && typeof event.preventDefault === "function") event.preventDefault();
+
       var title = wrap.querySelector("[data-lurei-name]").value.trim();
       var price = Number(wrap.querySelector("[data-lurei-price]").value);
       var type = wrap.querySelector("[data-lurei-type]").value;
       var description = wrap.querySelector("[data-lurei-desc]").value.trim();
       var stockRaw = wrap.querySelector("[data-lurei-stock]").value.trim();
 
-      /* A count of 0 is legitimate here - it is how a piece is taken off sale -
-         so only a negative or unparseable entry is rejected, and an empty box
-         keeps whatever the shelf already said. */
+      /* 0 is a valid count and simply means ample stock — it does not take the
+         piece off sale, so only a negative or unparseable entry is rejected,
+         and an empty box keeps whatever the shelf already said. */
       var stock = null;
       if (stockRaw !== "") {
         stock = Number(stockRaw);
@@ -1040,25 +1142,39 @@ var mounted = false;
         return;
       }
 
+/* One write closes the loop: store.update() persists to localStorage and
+         notifies subscribers synchronously, and the storefront subscriber
+         rebuilds the product grid from that same call - so the card behind this
+         form is already showing the new values by the time the line returns.
+
+         editingId is therefore cleared BEFORE the write, not after.
+         store.update() runs decorate() as its first subscriber, and that pass
+         re-opens the inline form for whichever id is still set - so leaving it
+         populated until after the write made SAVE reopen the form it was trying
+         to close, which is what made the first click look like it had done
+         nothing and needed a second one. Restored on failure so a rejected
+         save stays retryable with the values still in the fields. */
       try {
-        store.update(product.id, {
-          title: title,
-          price: price,
-          category: catalogue.priceBucketFor(price),
-          type: type,
-          description: description,
-          stock: stock,
-          outOfStock: stock === 0,
-        });
-        editingId = null;
-        announce(
-          stock === 0
-            ? '"' + title + '" is now out of stock.'
-            : '"' + title + '" updated.'
-        );
-      } catch (error) {
-        flashError(wrap, error.message);
-      }
+          /* outOfStock is deliberately absent from this patch: saving a count
+             must never move the sold-out flag, so the OUT OF STOCK toggle stays
+             the only thing that controls it. */
+          editingId = null;
+          store.update(product.id, {
+            title: title,
+            price: price,
+            category: catalogue.priceBucketFor(price),
+            type: type,
+            description: description,
+            stock: stock,
+          });
+          /* Idempotent whether or not the grid rebuild already detached this
+             form: remove() on an orphaned node is a no-op. */
+          closeInline();
+          announce('"' + title + '" updated.');
+        } catch (error) {
+          editingId = product.id;
+          flashError(wrap, error.message);
+        }
     };
 
     var closeInline = function () {
@@ -1085,7 +1201,7 @@ var mounted = false;
     wrap.addEventListener("keydown", function (event) {
       if (event.key === "Enter" && event.target.tagName !== "TEXTAREA") {
         event.preventDefault();
-        save();
+        save(event);
       }
       if (event.key === "Escape") {
         event.preventDefault();
@@ -1141,7 +1257,7 @@ var mounted = false;
               '<label class="lurei-field">' +
                 '<span class="lurei-field__label">Stock count</span>' +
                 '<input class="lurei-field__input" type="number" data-lurei-stock min="0" step="1" placeholder="3" />' +
-                '<span class="lurei-field__hint">Leave empty if untracked. 0 publishes it as Out of Stock.</span>' +
+                '<span class="lurei-field__hint">0 = Unlimited / Available Stock. Use OUT OF STOCK button to toggle availability.</span>' +
               "</label>" +
               '<label class="lurei-field">' +
                 '<span class="lurei-field__label">Category</span>' +
@@ -1373,16 +1489,17 @@ var onGridClick = function (event) {
       return;
     }
 
-    /* The button drives the real count rather than a lone flag: 0 empties the
-       shelf, and restocking puts the previous number back so the "3 LEFT" pill
-       reappears with the value it had before, not an arbitrary one. */
+    /* This button is the only thing that may set or clear the sold-out flag. The
+       count still moves with it so a restock brings the previous number back
+       rather than an arbitrary one, but the 0 written below is just a count —
+       the flag rides alongside it explicitly. */
     if (product.outOfStock === true) {
       if (!window.confirm('Bring "' + product.title + '" back into stock?')) return;
       var restore = typeof product.stock === "number" && product.stock > 0
         ? product.stock
         : lastKnownStock[product.id] || DEFAULT_RESTOCK;
       try {
-        store.setStock(product.id, restore);
+        store.setStock(product.id, restore, false);
         lastKnownStock[product.id] = restore;
         announce('"' + product.title + '" is back in stock — ' + restore + " left.");
       } catch (error) {
@@ -1399,7 +1516,7 @@ var onGridClick = function (event) {
       if (typeof product.stock === "number" && product.stock > 0) {
         lastKnownStock[product.id] = product.stock;
       }
-      store.setStock(product.id, 0);
+      store.setStock(product.id, 0, true);
       announce('"' + product.title + '" marked out of stock.');
     } catch (error) {
       announce(error.message);
@@ -1563,6 +1680,21 @@ var onGridClick = function (event) {
     }
   };
 
+  /* The homepage is a pure storefront preview and never hosts the editor.
+     It owns one of the GRID_IDS (products-container, the Top Selling
+     carousel), so without this gate an admin who had the edit flag set would
+     get the black edit bar, the ADD NEW PRODUCT fab and inline card tools
+     overlaid on the live homepage.
+
+     This is a page-identity check rather than CSS: skipping mount() means no
+     bar element, no fab, no modal and no body.lurei-edit-mode class are ever
+     created, so there is nothing to hide and no listener left attached.
+     Editing happens on collections.html, launched from the dashboard. */
+  var isStorefrontPreviewPage = function () {
+    var path = String(window.location.pathname || "");
+    return /(?:^|\/)index\.html?$/i.test(path);
+  };
+
   var mount = function () {
     /* mount() is exposed on the public catalogue object, so guard against a
        second call: wiring twice would append a second bar, FAB and modal and
@@ -1574,6 +1706,15 @@ var onGridClick = function (event) {
     /* Either route counts: the stored session flag set by the dashboard, or
        the ?editMode=true query string the dashboard button links to. */
     if (!catalogue.isEditModeRequested() && !viaUrl) return false;
+
+    /* Storefront preview page: clear any stale flag and mount nothing, so
+       the homepage stays byte-for-byte what a customer sees. Clearing the
+       flag here also means ?editMode=true typed onto the homepage does not
+       leak into the next page the admin opens. */
+    if (isStorefrontPreviewPage()) {
+      catalogue.exitEditMode();
+      return false;
+    }
 
     grid = findGrid();
     if (!grid) return false;
@@ -1596,6 +1737,10 @@ var onGridClick = function (event) {
   };
 
   catalogue.mount = mount;
+
+  /* Exposed because the account/auth block further down the file runs in a
+     separate closure and also needs to know it is on the storefront. */
+  catalogue.isStorefrontPreviewPage = isStorefrontPreviewPage;
 
   /* The tag sits at the end of <body>, so the DOM is usually already parsed;
      both paths are handled to keep the script position-independent. The
@@ -1929,19 +2074,29 @@ const stockOf = (value) => {
   return whole > 0 ? whole : 0;
 };
 
+/** Reads whichever field the data carries: the sheet export uses `stockCount`,
+ *  the local store writes `stock`. `stockCount` wins when both are present. */
+const rawStockOf = (product) => {
+  if (!product) return null;
+  return product.stockCount !== undefined && product.stockCount !== null
+    ? product.stockCount
+    : product.stock;
+};
+
+/** null means "no badge" — see stockOf() for why an absent count must never be
+ *  read as an empty shelf. Only a positive count comes back. */
 const stockCountOf = (product) => {
-  const count = stockOf(product && product.stock);
+  const count = stockOf(rawStockOf(product));
   return count !== null && count > 0 ? count : null;
 };
 
-/** A real zero empties the shelf; the legacy boolean still means sold out. */
-const isSoldOut = (product) =>
-  !!product && (product.outOfStock === true || stockOf(product.stock) === 0);
+/** Sold out is now the admin's explicit flag and nothing else. A count of 0, or
+ *  no count at all, means the shelf was never tallied for this piece - it hides
+ *  the stock badge rather than claiming the piece cannot be bought. */
+const isSoldOut = (product) => !!product && product.outOfStock === true;
 
-/* Minimal, high-end scarcity line. The old copy ran to "Only 3 pieces
-   remaining in Dubai stock" under a bar that already said the same thing, so
-   the number is now the entire message. */
-const stockLabelFor = (count) => (count === 1 ? "ONLY 1 LEFT" : `ONLY ${count} LEFT`);
+/** Only ever called with a positive count; 0 and unset render no badge at all. */
+const stockLabelFor = (count) => `STOCK ${count} LEFT`;
 
 /** Normalise unstructured sheet rows into consistent product objects. */
   const normalizeProducts = (payload) => {
@@ -1966,7 +2121,7 @@ const stockLabelFor = (count) => (count === 1 ? "ONLY 1 LEFT" : `ONLY ${count} L
           badge: row.badge ?? row.tag ?? row.Badge ?? null,
           /* Kept as a whole number of pieces, or null when the source sheet has
              no count at all - see stockOf() for why null must not become 0. */
-          stock: stockOf(row.stock ?? row.Stock ?? row["Stock Count"] ?? row.quantity),
+          stock: stockOf(row.stockCount ?? row.stock ?? row.Stock ?? row["Stock Count"] ?? row.quantity),
           outOfStock: row.outOfStock === true,
         };
       })
@@ -2260,10 +2415,14 @@ const stockLabelFor = (count) => (count === 1 ? "ONLY 1 LEFT" : `ONLY ${count} L
       const soldOut = isSoldOut(product);
 
       /* An admin count always wins over the curated seed number, so a restock
-         is reflected here in the same render as the collections grid. */
+         is reflected here in the same render as the collections grid. The seed
+         only stands in for pieces nobody has ever tallied: an explicit 0 is
+         respected and drops the stock badge entirely. */
       const counted = stockCountOf(product);
-      const left = counted === null ? vault.left : counted;
-      const pct = soldOut ? 0 : Math.max(8, Math.round((left / vault.stock) * 100));
+      const untallied = stockOf(rawStockOf(product)) === null;
+      const left = counted === null ? (untallied ? vault.left : 0) : counted;
+      const showStock = soldOut || left > 0;
+      const pct = soldOut ? 0 : left > 0 ? Math.max(8, Math.round((left / vault.stock) * 100)) : 0;
 
       const card = document.createElement("article");
       card.className = "new-in-card";
@@ -2290,7 +2449,8 @@ const stockLabelFor = (count) => (count === 1 ? "ONLY 1 LEFT" : `ONLY ${count} L
 
       /* One stock message per card. The pill is the only one now - the long
          "remaining in Dubai stock" line underneath it said the same number a
-         second time and only cluttered the card. */
+         second time and only cluttered the card. The admin's sold-out flag
+         always wins; a 0 or untallied count emits no pill and no bar. */
       const limited = document.createElement("span");
       limited.className = soldOut
         ? "new-in-card__limited new-in-card__limited--sold-out"
@@ -2306,7 +2466,8 @@ const stockLabelFor = (count) => (count === 1 ? "ONLY 1 LEFT" : `ONLY ${count} L
       heart.innerHTML = WISHLIST_ICON;
       if (hasWishlist(product.id)) heart.classList.add("is-wishlisted");
 
-      media.append(limited, heart);
+      if (showStock) media.append(limited);
+      media.append(heart);
 
       const body = document.createElement("div");
       body.className = "new-in-card__body";
@@ -2331,16 +2492,19 @@ const stockLabelFor = (count) => (count === 1 ? "ONLY 1 LEFT" : `ONLY ${count} L
 
       /* The slim depletion bar survives as a purely visual cue; the number now
          lives in the pill only, so there is nothing to contradict after a
-         restock. */
-      const stock = document.createElement("div");
-      stock.className = "new-in-card__stock";
-      const stockTrack = document.createElement("div");
-      stockTrack.className = "new-in-card__stock-track";
-      const stockFill = document.createElement("div");
-      stockFill.className = "new-in-card__stock-fill";
-      stockFill.style.width = `${pct}%`;
-      stockTrack.appendChild(stockFill);
-      stock.appendChild(stockTrack);
+         restock. Hidden alongside the pill when there is no count to show. */
+      let stock = null;
+      if (showStock) {
+        stock = document.createElement("div");
+        stock.className = "new-in-card__stock";
+        const stockTrack = document.createElement("div");
+        stockTrack.className = "new-in-card__stock-track";
+        const stockFill = document.createElement("div");
+        stockFill.className = "new-in-card__stock-fill";
+        stockFill.style.width = `${pct}%`;
+        stockTrack.appendChild(stockFill);
+        stock.appendChild(stockTrack);
+      }
 
       const cta = document.createElement("button");
       cta.type = "button";
@@ -2355,7 +2519,8 @@ const stockLabelFor = (count) => (count === 1 ? "ONLY 1 LEFT" : `ONLY ${count} L
       cta.innerHTML = `${CART_ICON}<span>${soldOut ? "Out of Stock" : "Add to Cart"}</span>`;
       if (soldOut) cta.disabled = true;
 
-      body.append(title, desc, price, stock, cta);
+      if (stock) body.append(stock);
+      body.append(title, desc, price, cta);
       card.append(media, body);
       fragment.appendChild(card);
     });
@@ -2913,16 +3078,26 @@ const stockLabelFor = (count) => (count === 1 ? "ONLY 1 LEFT" : `ONLY ${count} L
 
   const buildOrderReference = () => `LUREI-${Date.now().toString().slice(-6)}`;
 
-  checkoutBtn.addEventListener("click", openCheckout);
-  checkoutClose.addEventListener("click", () => {
-    resetCheckoutView();
-    closeCheckout();
-  });
+  /* The drawer, modal and overlay only exist on storefront pages. Pages that
+     load this file without them (admin dashboard, admin login) must not have
+     the whole script abort here, or nothing defined further down ever
+     registers. */
+  if (checkoutBtn) {
+    checkoutBtn.addEventListener("click", openCheckout);
+  }
+  if (checkoutClose) {
+    checkoutClose.addEventListener("click", () => {
+      resetCheckoutView();
+      closeCheckout();
+    });
+  }
 
-  modalOverlay.addEventListener("click", () => {
-    resetCheckoutView();
-    closeCheckout();
-  });
+  if (modalOverlay) {
+    modalOverlay.addEventListener("click", () => {
+      resetCheckoutView();
+      closeCheckout();
+    });
+  }
 
   payOptions.forEach((radio) => {
     radio.addEventListener("change", () => {
@@ -3147,7 +3322,10 @@ const stockLabelFor = (count) => (count === 1 ? "ONLY 1 LEFT" : `ONLY ${count} L
   const deliveryDateInput = $("#cust-delivery-date");
   if (deliveryDateInput) deliveryDateInput.min = toISODate(new Date());
 
-  checkoutForm.addEventListener("submit", (event) => {
+  /* Bound only when the storefront checkout form is on the page: the admin
+     dashboard and the admin login load this file for the shared helpers and
+     must not have the script abort here. */
+  if (checkoutForm) checkoutForm.addEventListener("submit", (event) => {
     event.preventDefault();
     event.stopPropagation();
     if (!checkoutForm.checkValidity()) {
@@ -3202,12 +3380,14 @@ const stockLabelFor = (count) => (count === 1 ? "ONLY 1 LEFT" : `ONLY ${count} L
     /* Persist the placed order so the LUREÍ admin panel (admin-dashboard.html)
        can read real order objects instead of dummy data. Appended to the
        'lurei_orders' log; delivery status defaults to "pending". */
+    /* Customer fields persist trimmed with a lowercased email (the "N/A"
+       sentinel is kept as-is). */
     const orderRecord = {
       orderId,
-      customerName: name,
-      phone,
-      email,
-      address,
+      customerName: String(name || "").trim(),
+      phone: String(phone || "").trim(),
+      email: email === "N/A" ? email : String(email || "").trim().toLowerCase(),
+      address: String(address || "").trim(),
       payment: paymentLabel,
       paymentMethod: payment,
       requestedDeliveryDate,
@@ -3216,11 +3396,25 @@ const stockLabelFor = (count) => (count === 1 ? "ONLY 1 LEFT" : `ONLY ${count} L
         price: item.price,
         quantity: item.quantity,
       })),
-      totalAED: Number(totalPrice),
+      /* Parsed from the numeric core so a formatted total ("AED 30.00")
+         can never persist as NaN and vanish from the dashboard Revenue,
+         Orders and Average Order Value cards. */
+      totalAED: (() => {
+        const match = String(totalPrice == null ? "" : totalPrice).match(/-?\d+(?:\.\d+)?/);
+        const parsed = match ? Number(match[0]) : 0;
+        return Number.isFinite(parsed) ? parsed : 0;
+      })(),
       currencyAtOrder: currencyCode(),
       status: "pending",
       createdAt: new Date().toISOString(),
     };
+
+    /* Plain-key aliases for consumers that read `total` / `date`: total
+       mirrors totalAED and date mirrors createdAt. Code.gs picks known
+       fields only, so these never reach the Sheet — they just keep every
+       reader of the local record working off the same values. */
+    orderRecord.total = orderRecord.totalAED;
+    orderRecord.date = orderRecord.createdAt;
 
     try {
       const ORDERS_KEY = "lurei_orders";
@@ -3501,10 +3695,13 @@ Thank you!`;
     renderCartItems();
   });
 
-  $("#checkout-done").addEventListener("click", () => {
-    resetCheckoutView();
-    closeCheckout();
-  });
+  const checkoutDoneBtn = $("#checkout-done");
+  if (checkoutDoneBtn) {
+    checkoutDoneBtn.addEventListener("click", () => {
+      resetCheckoutView();
+      closeCheckout();
+    });
+  }
 
   /* ------------------------------------------------------------------ *
    * 7c. Wishlist (localStorage + slide-out drawer)
@@ -4215,6 +4412,11 @@ Thank you!`;
      * ------------------------------------------------------------------ */
     const GOOGLE_CLIENT_ID = ""; // TODO: paste your Google Cloud OAuth Client ID here
     const AUTH_STORAGE_KEY = "lurei_user";
+    /* Admin preview state. grantAdminSession() raises this on a successful
+       Admin Access sign-in; the navbar badge and the Administrator card are
+       driven off it, so an admin who lands straight on index.html is
+       recognised as an admin without authenticating again. */
+    const ADMIN_PREVIEW_KEY = "isAdminLoggedIn";
 
     const authModal = document.getElementById("auth-modal");
     const authClose = document.getElementById("auth-close");
@@ -4228,6 +4430,10 @@ Thank you!`;
     const createName = document.getElementById("auth-create-name");
     const createEmail = document.getElementById("auth-create-email");
     const createPw = document.getElementById("auth-create-password");
+    /* Admin Access tab (present on index.html; absent on other pages — guarded) */
+    const adminForm = document.getElementById("auth-admin-form");
+    const adminEmail = document.getElementById("admin-access-email");
+    const adminPw = document.getElementById("admin-access-password");
 
     /* Force-clear login fields — global, used on load and back-arrow exit */
     window.clearLoginInputs = () => {
@@ -4235,6 +4441,10 @@ Thank you!`;
       const passwordField = document.getElementById("loginPassword");
       if (emailField) emailField.value = "";
       if (passwordField) passwordField.value = "";
+      const adminEmailField = document.getElementById("admin-access-email");
+      const adminPasswordField = document.getElementById("admin-access-password");
+      if (adminEmailField) adminEmailField.value = "";
+      if (adminPasswordField) adminPasswordField.value = "";
     };
 
     if (document.readyState === "loading") {
@@ -4248,6 +4458,14 @@ Thank you!`;
       catch { return null; }
     };
     let currentUser = readStoredUser();
+
+    /* Single authority for "is this browser showing the storefront as an
+       admin?". Kept in localStorage (not sessionStorage) so it survives the
+       VIEW STORE / Back to Dashboard hand-off between tabs. */
+    const isAdminPreviewActive = () => {
+      try { return localStorage.getItem(ADMIN_PREVIEW_KEY) === "true"; }
+      catch { return false; }
+    };
 
     const firstNameOf = (n) => String(n || "Guest").trim().split(/\s+/)[0] || "Friend";
     const initialsOf = (n) => String(n || "?").trim().split(/\s+/).map((w) => w.charAt(0)).slice(0, 2).join("").toUpperCase();
@@ -4290,6 +4508,36 @@ Thank you!`;
       setTimeout(() => { authModal.hidden = true; }, 280);
     };
 
+    /* Single place that clears every trace of an admin session from the
+       storefront, shared by the storefront Sign Out and the storefront
+       belt-and-braces cleanup below. */
+    const removeAdminPreviewUi = () => {
+      try { localStorage.removeItem(ADMIN_PREVIEW_KEY); } catch {}
+      try {
+        sessionStorage.removeItem("adminLoggedIn");
+        sessionStorage.removeItem("lurei_gas_admin_session");
+      } catch {}
+      /* grantAdminSession() stores the Administrator placeholder as the
+         profile, so it has to go too or a stale name would be rebuilt. */
+      try { localStorage.removeItem(AUTH_STORAGE_KEY); } catch {}
+      currentUser = null;
+      /* No edit UI may survive a sign-out, on any page. */
+      document.body.classList.remove("lurei-edit-mode");
+      document.querySelectorAll(".lurei-edit-bar, .lurei-add-fab").forEach(function (el) {
+        el.remove();
+      });
+    };
+
+    /* Belt-and-braces: the editor refuses to mount on the homepage, but a flag
+       left over from an earlier session must never leave the black bar or
+       body padding behind on a customer-facing page. */
+    if (window.LureiCatalogue && window.LureiCatalogue.isStorefrontPreviewPage()) {
+      document.body.classList.remove("lurei-edit-mode");
+      document.querySelectorAll(".lurei-edit-bar, .lurei-add-fab").forEach(function (el) {
+        el.remove();
+      });
+    }
+
     /* Profile badge + dropdown */
     const patchProfile = () => {
       if (!navProfileBtn) return;
@@ -4298,7 +4546,19 @@ Thank you!`;
       const oldMenu = navProfileBtn.querySelector(".nav-profile__menu");
       if (oldMenu) oldMenu.remove();
 
-      if (currentUser) {
+      /* Admin preview takes the badge over with a champagne "A", so an admin
+         browsing the storefront is never mistaken for a shopper. Rendered
+         from scratch on every patch, so the badge follows sign-in and
+         sign-out with no separate state to keep in sync. */
+      if (isAdminPreviewActive()) {
+        const badge = document.createElement("span");
+        badge.className = "nav-profile__badge nav-profile__badge--admin";
+        badge.textContent = "A";
+        badge.title = "Administrator — storefront preview";
+        badge.setAttribute("aria-hidden", "true");
+        navProfileBtn.appendChild(badge);
+        navProfileBtn.setAttribute("aria-label", "Administrator — account menu");
+      } else if (currentUser) {
         const badge = document.createElement("span");
         badge.className = "nav-profile__badge";
         badge.textContent = initialsOf(currentUser.name);
@@ -4320,20 +4580,52 @@ Thank you!`;
       showLureiToast("Welcome to LUREÍ, " + firstNameOf(currentUser.name) + "!");
     };
 
-    /* Sign-out */
+    /* Sign-out — also drops any admin session so dashboard guard re-locks */
     const handleSignOut = () => {
       currentUser = null;
       try { localStorage.removeItem(AUTH_STORAGE_KEY); } catch {}
+      try { localStorage.removeItem(ADMIN_PREVIEW_KEY); } catch {}
+      try {
+        sessionStorage.removeItem("adminLoggedIn");
+        sessionStorage.removeItem("lurei_gas_admin_session");
+      } catch {}
       patchProfile();
       const m = navProfileBtn ? navProfileBtn.querySelector(".nav-profile__menu") : null;
       if (m) m.remove();
       showLureiToast("You have been signed out.");
     };
 
-    /* Email sign-in (mock — wire to real backend) */
+    /* Admin sign-out — drops the admin preview flag and every dashboard
+       guard key, then reloads so index.html renders the standard customer
+       view. Reloading (rather than patching in place) guarantees no stale
+       admin badge or Administrator card survives the reset, and re-runs the
+       same load path a normal visitor gets. */
+    const handleAdminSignOut = () => {
+      removeAdminPreviewUi();
+      window.location.reload();
+    };
+
+    /* Customer Login tab — standard shopper session only. Admin routing
+       lives exclusively under the Admin Access tab below. */
     const signInWithEmail = (email) => {
-      const label = (email.split("@")[0] || "Guest").replace(/[._-]+/g, " ");
-      handleAuthenticated({ name: label.charAt(0).toUpperCase() + label.slice(1), email: email });
+      const normalizedEmail = String(email || "").trim();
+      const label = (normalizedEmail.split("@")[0] || "Guest").replace(/[._-]+/g, " ");
+      handleAuthenticated({ name: label.charAt(0).toUpperCase() + label.slice(1), email: normalizedEmail });
+    };
+
+    /* Raises every flag the dashboard guard accepts, plus the localStorage
+       admin session and navbar profile so the storefront renders the
+       Administrator card with BACK TO DASHBOARD. */
+    const grantAdminSession = (email) => {
+      try {
+        sessionStorage.setItem("adminLoggedIn", "true");
+        sessionStorage.setItem("lurei_gas_admin_session", JSON.stringify({ role: "admin", email: email }));
+        localStorage.setItem(ADMIN_PREVIEW_KEY, "true");
+        const adminUser = { name: "Administrator", email: email, photo: "", role: "admin" };
+        localStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify(adminUser));
+        currentUser = adminUser;
+      } catch {}
+      patchProfile();
     };
 
     /* Create-account (mock) */
@@ -4380,13 +4672,16 @@ Thank you!`;
         signInPw.value = "";
         signInPw.type = "password";
       }
+      if (adminEmail) adminEmail.value = "";
+      if (adminPw) adminPw.value = "";
       if (signInForm) signInForm.reset();
       if (createForm) createForm.reset();
+      if (adminForm) adminForm.reset();
       if (togglePasswordBtn) togglePasswordBtn.setAttribute("aria-label", "Show password");
       if (eyeSvg) eyeSvg.style.color = "#888275";
     };
 
-    /* Sign-in form */
+    /* Customer Login form — standard shopper session, modal closes */
     if (signInForm) {
       signInForm.addEventListener("submit", (e) => {
         e.preventDefault();
@@ -4395,6 +4690,30 @@ Thank you!`;
         if (!email) return showLureiToast("Please enter your email.");
         if (!pw) return showLureiToast("Please enter your password.");
         signInWithEmail(email);
+      });
+    }
+
+    /* Admin Access form — immediate authentication.
+       The boutique owner signs in with the admin address and password and is
+       taken straight to the dashboard: no credential round-trip, no backend
+       call, no error state. The only thing refused is a blank submission
+       (the form is novalidate, so `required` never fires on its own).
+
+       NOTE: this is a client-side convenience gate, not a security control —
+       localStorage is readable by anyone with the browser. The dashboard
+       itself re-checks ADMIN_API_KEY server-side (see Code.gs), so a
+       hand-edited flag can reveal the shell but cannot read or write a
+       Sheet. Sign out in admin-dashboard.html drops the flag again. */
+    if (adminForm) {
+      adminForm.addEventListener("submit", (e) => {
+        e.preventDefault();
+        const email = adminEmail ? adminEmail.value.trim() : "";
+        const pw = adminPw ? adminPw.value : "";
+        if (!email || !pw) return;
+
+        grantAdminSession(email);
+        closeAuthModal();
+        window.location.href = "admin-dashboard.html";
       });
     }
 
@@ -4418,20 +4737,48 @@ Thank you!`;
         /* Ignore clicks on the dropdown itself */
         if (e.target.closest && e.target.closest(".nav-profile__menu")) return;
 
-        if (currentUser) {
+        /* Admin preview opens the Administrator card even when no shopper
+           profile exists, so the way back to the dashboard is always
+           reachable from the storefront. */
+        if (currentUser || isAdminPreviewActive()) {
           const existing = navProfileBtn.querySelector(".nav-profile__menu");
           if (existing) { existing.remove(); return; }
 
           const menu = document.createElement("div");
           menu.className = "nav-profile__menu";
-          menu.innerHTML =
-            '<p class="nav-profile__menu-name">' + escapeHtml(currentUser.name) + "</p>" +
-            '<p class="nav-profile__menu-email">' + escapeHtml(currentUser.email) + "</p>" +
-            '<button type="button" class="nav-profile__signout" id="nav-signout">Sign Out</button>';
-          navProfileBtn.appendChild(menu);
 
-          const so = menu.querySelector("#nav-signout");
-          if (so) so.addEventListener("click", (ev) => { ev.stopPropagation(); handleSignOut(); });
+          if (isAdminPreviewActive()) {
+            menu.innerHTML =
+              '<p class="nav-profile__menu-name">Administrator</p>' +
+              '<p class="nav-profile__menu-role">Storefront preview</p>' +
+              (currentUser ? '<p class="nav-profile__menu-email">' + escapeHtml(currentUser.email) + "</p>" : "") +
+              '<div class="nav-profile__actions">' +
+                '<button type="button" class="nav-profile__dashboard" id="nav-dashboard">Back to Dashboard</button>' +
+                '<button type="button" class="nav-profile__signout" id="nav-admin-signout">Sign Out</button>' +
+              "</div>";
+            navProfileBtn.appendChild(menu);
+
+            menu.querySelector("#nav-dashboard").addEventListener("click", (ev) => {
+              ev.stopPropagation();
+              /* Straight navigation — the admin session is deliberately left
+                 intact so the dashboard guard still admits the navigation. */
+              window.location.href = "admin-dashboard.html";
+            });
+
+            menu.querySelector("#nav-admin-signout").addEventListener("click", (ev) => {
+              ev.stopPropagation();
+              handleAdminSignOut();
+            });
+          } else {
+            menu.innerHTML =
+              '<p class="nav-profile__menu-name">' + escapeHtml(currentUser.name) + "</p>" +
+              '<p class="nav-profile__menu-email">' + escapeHtml(currentUser.email) + "</p>" +
+              '<button type="button" class="nav-profile__signout" id="nav-signout">Sign Out</button>';
+            navProfileBtn.appendChild(menu);
+
+            const so = menu.querySelector("#nav-signout");
+            if (so) so.addEventListener("click", (ev) => { ev.stopPropagation(); handleSignOut(); });
+          }
 
           const closeDropdown = (ev) => {
             if (!navProfileBtn.contains(ev.target)) { menu.remove(); document.removeEventListener("click", closeDropdown); }
@@ -4478,7 +4825,9 @@ Thank you!`;
           }
 
           /* Auto-prompt One-Tap once per session if not logged in */
-          if (!currentUser && !sessionStorage.getItem("lurei_onetap_seen")) {
+          /* Admin preview counts as "in", so the One-Tap sheet never interrupts an
+             admin browsing the storefront in preview mode. */
+          if (!currentUser && !isAdminPreviewActive() && !sessionStorage.getItem("lurei_onetap_seen")) {
             window.google.accounts.id.prompt((moment) => {
               sessionStorage.setItem("lurei_onetap_seen", "1");
               if (moment && (moment.isNotDisplayed() || moment.isSkippedMoment() || moment.isDismissedMoment())) {

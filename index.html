@@ -463,8 +463,8 @@
         </header>
 
       <div class="auth-modal__tabs" role="tablist" aria-label="Account options">
-        <button class="auth-tab is-active" type="button" role="tab" aria-selected="true" data-auth-panel="signin">Sign In</button>
-        <button class="auth-tab" type="button" role="tab" aria-selected="false" data-auth-panel="create">Create Free Account</button>
+        <button class="auth-tab is-active" type="button" role="tab" aria-selected="true" data-auth-panel="signin">Customer Login</button>
+        <button class="auth-tab" type="button" role="tab" aria-selected="false" data-auth-panel="admin">Admin Access</button>
       </div>
 
       <section class="auth-panel is-active" id="auth-panel-signin" role="tabpanel">
@@ -490,21 +490,18 @@
         </form>
       </section>
 
-      <section class="auth-panel" id="auth-panel-create" role="tabpanel" hidden>
-        <form class="auth-form" id="auth-create-form" novalidate>
+      <section class="auth-panel" id="auth-panel-admin" role="tabpanel" hidden>
+        <p class="auth-panel__divider"><span>Restricted &mdash; boutique managers</span></p>
+        <form class="auth-form" id="auth-admin-form" autocomplete="off" novalidate>
           <div class="field">
-            <label class="field__label" for="auth-create-name">Full Name</label>
-            <input class="field__input auth-input" id="auth-create-name" type="text" placeholder="Your full name" autocomplete="name" required />
+            <label class="field__label" for="admin-access-email">Email Address</label>
+            <input class="field__input auth-input" id="admin-access-email" name="admin_email" type="email" placeholder="admin@lurei.ae" autocomplete="off" value="" required />
           </div>
           <div class="field">
-            <label class="field__label" for="auth-create-email">Email Address</label>
-            <input class="field__input auth-input" id="auth-create-email" type="email" placeholder="you@email.com" autocomplete="email" required />
+            <label class="field__label" for="admin-access-password">Password</label>
+            <input class="field__input auth-input" id="admin-access-password" name="admin_password" type="password" placeholder="Enter admin password" autocomplete="new-password" value="" required />
           </div>
-          <div class="field">
-            <label class="field__label" for="auth-create-password">Password</label>
-            <input class="field__input auth-input" id="auth-create-password" type="password" placeholder="At least 6 characters" autocomplete="new-password" minlength="6" required />
-          </div>
-          <button class="btn btn--auth" type="submit">Create Account</button>
+          <button class="btn btn--auth" type="submit">Access Dashboard</button>
         </form>
       </section>
 
