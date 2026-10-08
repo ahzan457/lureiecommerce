@@ -1787,20 +1787,23 @@ body:not(.admin-page) select {
   align-items: center;
   gap: 0.6rem;
   margin-top: 1.6rem;
-  background: #1A1A1A;
-  color: #FFFFFF;
-  padding: 0.95rem 2.1rem;
+  background: var(--color-gold);
+  color: #0b0b0b;
+  padding: 14px 32px;
   border-radius: 30px;
   font-size: 12px;
   font-weight: 600;
-  letter-spacing: 2px;
+  letter-spacing: 1.5px;
   text-transform: uppercase;
-  transition: transform var(--transition), box-shadow var(--transition);
+  box-shadow: var(--shadow-gold);
+  transition: transform var(--transition), box-shadow var(--transition), background var(--transition);
 }
 
 .legacy__cta:hover {
-  transform: translateY(-3px);
-  box-shadow: 0 16px 34px -14px rgba(212, 175, 55, 0.6);
+  background: var(--color-gold-dark);
+  color: #0b0b0b;
+  transform: translateY(-2px);
+  box-shadow: 0 20px 42px -16px rgba(156, 114, 58, 0.65);
 }
 
 @media (max-width: 560px) {
