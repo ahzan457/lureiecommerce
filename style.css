@@ -1639,30 +1639,6 @@ body:not(.admin-page) select {
   display: none;
 }
 
-.legacy__hero {
-  position: relative;
-  overflow: hidden;
-  background: linear-gradient(175deg, #FFFFFF 0%, #FAF8F5 40%, #FBF8F2 100%);
-  color: #1A1A1A;
-  text-align: center;
-  padding: 5rem 1.25rem 4.5rem;
-  border-bottom: 1px solid rgba(212, 175, 55, 0.35);
-}
-
-.legacy__hero::before {
-  content: "";
-  position: absolute;
-  inset: 0;
-  pointer-events: none;
-  background-image:
-    radial-gradient(720px 420px at 16% 12%, rgba(212, 175, 55, 0.10), transparent 62%),
-    radial-gradient(660px 460px at 86% 80%, rgba(212, 175, 55, 0.07), transparent 60%);
-}
-
-.legacy__hero-inner {
-  position: relative;
-}
-
 .legacy__label {
   display: inline-block;
   color: #D4AF37;
@@ -1806,13 +1782,52 @@ body:not(.admin-page) select {
   box-shadow: 0 20px 42px -16px rgba(156, 114, 58, 0.65);
 }
 
+/* About hero: owner portrait beside the legacy intro. The kicker, title
+   and subtitle stay centered while the courage copy reads left-aligned,
+   mirroring the Legacy section composition. */
+.about-legacy-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 40px;
+  align-items: center;
+  padding: 60px 5%;
+  background-color: #fdfbf7;
+  border-bottom: 1px solid rgba(212, 175, 55, 0.35);
+}
+
+.about-legacy-image {
+  margin: 0;
+}
+
+.about-legacy-image img {
+  display: block;
+  width: 100%;
+  height: auto;
+  object-fit: cover;
+  border-radius: 8px;
+  background: #EFE7D8;
+  box-shadow: 0 30px 60px -30px rgba(120, 85, 20, 0.35);
+}
+
+.about-legacy-content {
+  text-align: center;
+}
+
+.about-legacy-courage {
+  margin-top: 2.5rem;
+  text-align: left;
+}
+
+@media (max-width: 768px) {
+  .about-legacy-grid {
+    grid-template-columns: 1fr;
+    gap: 24px;
+  }
+}
+
 @media (max-width: 560px) {
   .legacy__title {
     font-size: 32px;
-  }
-
-  .legacy__hero {
-    padding: 3.5rem 1.25rem 3rem;
   }
 
   .legacy__body {
