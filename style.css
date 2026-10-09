@@ -3802,55 +3802,93 @@ body:not(.admin-page) input[type="date"].field__input::-webkit-calendar-picker-i
   color: #9A9389;
 }
 
-/* Preview theme variants */
+/* Preview theme variants — one per tier, synced by gcSelectCard. */
 .gc-preview__card.is-silver {
-  background: linear-gradient(135deg, #EFF0F2 0%, #CDCFD4 50%, #AEB2B9 100%);
+  background: linear-gradient(135deg, #e6e8eb 0%, #ffffff 50%, #d1d5db 100%);
 }
 
-.gc-preview__card.is-sapphire {
-  background: linear-gradient(135deg, #3B4C8C 0%, #1E2A4A 55%, #14203C 100%);
-  color: #F5EEDC;
+.gc-preview__card.is-ruby {
+  background: linear-gradient(135deg, #4a0e17 0%, #7a1c28 50%, #30080f 100%);
+  color: #fdfbf7;
 }
 
-.gc-preview__card.is-sapphire .gc-preview__brand,
-.gc-preview__card.is-sapphire .gc-preview__amount,
-.gc-preview__card.is-sapphire .gc-preview__meta {
-  color: #E9DFC8;
+.gc-preview__card.is-ruby .gc-preview__brand,
+.gc-preview__card.is-ruby .gc-preview__amount,
+.gc-preview__card.is-ruby .gc-preview__meta {
+  color: #fdfbf7;
 }
 
-.gc-preview__card.is-sapphire .gc-preview__divider {
-  background: rgba(233, 223, 200, 0.45);
+.gc-preview__card.is-ruby .gc-preview__divider {
+  background: rgba(253, 251, 247, 0.45);
 }
 
-.gc-preview__card.is-sapphire .gc-preview__label,
-.gc-preview__card.is-sapphire .gc-preview__message,
-.gc-preview__card.is-sapphire .gc-preview__code {
-  color: rgba(233, 223, 200, 0.75);
+.gc-preview__card.is-ruby .gc-preview__label,
+.gc-preview__card.is-ruby .gc-preview__message,
+.gc-preview__card.is-ruby .gc-preview__code {
+  color: rgba(253, 251, 247, 0.75);
 }
 
-.gc-preview__card.is-rosegold {
-  background: linear-gradient(135deg, #EFC9C2 0%, #D49A8F 45%, #C77F78 100%);
+.gc-preview__card.is-emerald {
+  background: linear-gradient(135deg, #062c21 0%, #0f4c3a 50%, #041f17 100%);
+  color: #fdfbf7;
+}
+
+.gc-preview__card.is-emerald .gc-preview__brand,
+.gc-preview__card.is-emerald .gc-preview__amount,
+.gc-preview__card.is-emerald .gc-preview__meta {
+  color: #fdfbf7;
+}
+
+.gc-preview__card.is-emerald .gc-preview__divider {
+  background: rgba(253, 251, 247, 0.45);
+}
+
+.gc-preview__card.is-emerald .gc-preview__label,
+.gc-preview__card.is-emerald .gc-preview__message,
+.gc-preview__card.is-emerald .gc-preview__code {
+  color: rgba(253, 251, 247, 0.75);
+}
+
+.gc-preview__card.is-gold {
+  background: linear-gradient(135deg, #fceabb 0%, #f8d078 40%, #e0aa3e 70%, #b8860b 100%);
+  color: #1a1a1a;
+}
+
+.gc-preview__card.is-gold .gc-preview__brand,
+.gc-preview__card.is-gold .gc-preview__amount,
+.gc-preview__card.is-gold .gc-preview__meta {
+  color: #1a1a1a;
+}
+
+.gc-preview__card.is-gold .gc-preview__divider {
+  background: rgba(26, 26, 26, 0.4);
+}
+
+.gc-preview__card.is-gold .gc-preview__label,
+.gc-preview__card.is-gold .gc-preview__message,
+.gc-preview__card.is-gold .gc-preview__code {
+  color: rgba(26, 26, 26, 0.72);
 }
 
 .gc-preview__card.is-onyx {
-  background: linear-gradient(135deg, #101C15 0%, #124C44 55%, #1E7A55 135%);
-  color: #F5EEDC;
+  background: linear-gradient(135deg, #0f172a 0%, #1e293b 50%, #0f172a 100%);
+  color: #ffffff;
 }
 
 .gc-preview__card.is-onyx .gc-preview__brand,
 .gc-preview__card.is-onyx .gc-preview__amount,
 .gc-preview__card.is-onyx .gc-preview__meta {
-  color: #E9DFC8;
+  color: #ffffff;
 }
 
 .gc-preview__card.is-onyx .gc-preview__divider {
-  background: rgba(233, 223, 200, 0.45);
+  background: rgba(255, 255, 255, 0.45);
 }
 
 .gc-preview__card.is-onyx .gc-preview__label,
 .gc-preview__card.is-onyx .gc-preview__message,
 .gc-preview__card.is-onyx .gc-preview__code {
-  color: rgba(233, 223, 200, 0.75);
+  color: rgba(255, 255, 255, 0.75);
 }
 
 /* --- Selectable metallic cards --- */
@@ -3890,40 +3928,52 @@ body:not(.admin-page) input[type="date"].field__input::-webkit-calendar-picker-i
 }
 
 .gc-card:hover {
-  transform: translateY(-5px);
+  transform: translateY(-3px);
   box-shadow: 0 22px 44px -18px rgba(26, 26, 26, 0.4);
 }
 
 .gc-card.is-selected {
-  outline: 3px solid #B8860B;
+  outline: 2px solid #d4af37;
   outline-offset: 3px;
 }
 
-.gc-card--champagne {
-  background: linear-gradient(135deg, #F5E7C8 0%, #D9BC7E 45%, #C9A45C 100%);
+/* Tier themes live here only. Scoped under .gc-cards (0,2,0) so they beat
+   the global body:not(.admin-page) button reset (0,1,2), which would
+   otherwise force every tier back to background:none / inherited color.
+   The live preview re-themes through its own is-* classes (script.js maps
+   gc-card--X to is-X), so recoloring these modifiers never touches it. */
+.gc-cards .gc-card--champagne {
+  background: linear-gradient(135deg, #4a0e17 0%, #7a1c28 50%, #30080f 100%);
+  color: #fdfbf7;
+  border: 1px solid #991b1b;
 }
 
-.gc-card--silver {
-  background: linear-gradient(135deg, #EFF0F2 0%, #CDCFD4 50%, #AEB2B9 100%);
+.gc-cards .gc-card--silver {
+  background: linear-gradient(135deg, #e6e8eb 0%, #ffffff 50%, #d1d5db 100%);
+  border: 1px solid #cbd5e1;
 }
 
-.gc-card--wide {
+.gc-cards .gc-card--wide {
   grid-column: 1 / -1;
   aspect-ratio: 24 / 9;
 }
 
-.gc-card--sapphire {
-  background: linear-gradient(135deg, #3B4C8C 0%, #1E2A4A 55%, #14203C 100%);
-  color: #F5EEDC;
+.gc-cards .gc-card--sapphire {
+  background: linear-gradient(135deg, #062c21 0%, #0f4c3a 50%, #041f17 100%);
+  color: #fdfbf7;
+  border: 1px solid #15803d;
 }
 
-.gc-card--rosegold {
-  background: linear-gradient(135deg, #EFC9C2 0%, #D49A8F 45%, #C77F78 100%);
+.gc-cards .gc-card--rosegold {
+  background: linear-gradient(135deg, #fceabb 0%, #f8d078 40%, #e0aa3e 70%, #b8860b 100%);
+  color: #1a1a1a;
+  border: 1px solid #d4af37;
 }
 
-.gc-card--onyx {
-  background: linear-gradient(135deg, #101C15 0%, #124C44 55%, #1E7A55 135%);
-  color: #F5EEDC;
+.gc-cards .gc-card--onyx {
+  background: linear-gradient(135deg, #0f172a 0%, #1e293b 50%, #0f172a 100%);
+  color: #ffffff;
+  border: 1px solid #38bdf8;
 }
 
 .gc-card__brand {

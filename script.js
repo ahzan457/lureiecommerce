@@ -5201,10 +5201,34 @@ Thank you!`;
         }
       }
 
-      const modifier = Array.from(card.classList).find((cls) => /^gc-card--/.test(cls));
-      const theme = modifier ? modifier.replace("gc-card--", "is-") : "";
-      gcPreviewCard.classList.remove("is-silver", "is-sapphire", "is-rosegold", "is-onyx");
-      if (theme && theme !== "is-champagne") gcPreviewCard.classList.add(theme);
+      /* Tier modifier to preview theme. Modifier names predate the metallic
+         re-theme (champagne is the Ruby tier, sapphire the Emerald tier,
+         rosegold the Gold tier), so the mapping is explicit rather than
+         derived — and every past or legacy theme class is dropped first so
+         two gradients can never stack. */
+      const GC_PREVIEW_THEMES = {
+        "gc-card--silver": "is-silver",
+        "gc-card--champagne": "is-ruby",
+        "gc-card--sapphire": "is-emerald",
+        "gc-card--rosegold": "is-gold",
+        "gc-card--onyx": "is-onyx",
+      };
+      const GC_PREVIEW_THEME_CLASSES = [
+        "is-silver",
+        "is-ruby",
+        "is-emerald",
+        "is-gold",
+        "is-onyx",
+        "is-sapphire",
+        "is-rosegold",
+        "is-champagne",
+      ];
+      const modifier = Array.from(card.classList).find(
+        (cls) => /^gc-card--/.test(cls) && cls !== "gc-card--wide"
+      );
+      gcPreviewCard.classList.remove(...GC_PREVIEW_THEME_CLASSES);
+      const theme = (modifier && GC_PREVIEW_THEMES[modifier]) || "";
+      if (theme) gcPreviewCard.classList.add(theme);
 
       gcRefreshPreview();
     };
@@ -5212,6 +5236,12 @@ Thank you!`;
     gcCards.forEach((card) => {
       card.addEventListener("click", () => gcSelectCard(card));
     });
+
+    /* Sync the preview with the pre-selected tier on load — otherwise the
+       foil keeps its neutral base while a tier already shows selected. */
+    const preselectedGcCard =
+      gcCards.find((card) => card.classList.contains("is-selected")) || gcCards[0];
+    if (preselectedGcCard) gcSelectCard(preselectedGcCard);
 
     if (gcCustomInput) {
       gcCustomInput.addEventListener("input", gcRefreshPreview);
