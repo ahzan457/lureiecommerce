@@ -284,6 +284,16 @@
 
     updateOrder: (orderId, status) => gasRequest("updateOrderStatus", { orderId, status }),
 
+    /* Canonical status writer the admin dashboard calls. Accepts either
+       casing ("Delivered"/"delivered") and always persists Title Case, which
+       is what the Sheet's Status column and the dashboard toast display. */
+    updateOrderStatus: (orderId, status) => {
+      const next = String(status || "").toLowerCase() === "delivered" ? "Delivered" : "Pending";
+      return gasRequest("updateOrderStatus", { orderId, status: next });
+    },
+
+    getAppsScriptUrl: () => String(CONFIG.APPS_SCRIPT_URL || "").trim(),
+
     /* Called with the whole order record, not an id — the dashboard assembles
        it from the row. Filing means an upsert onto the completed log keyed by
        order_id, so filing the same sale twice updates the one entry. */
@@ -303,6 +313,72 @@
   /* Assigned before the catalogue store below, which captures this reference
      at load time (see the mayEdit() gate). */
   window.LureiBackend = gasBackend;
+
+  /* ------------------------------------------------------------------ *
+   * 1b-ii. Order delivery-status toggle helper (admin dashboard)
+   *
+   * Shared logic behind the PENDING / DELIVERED badge button:
+   *  - nextStatusFor(): toggles "Pending" <-> "Delivered" (Title Case, which
+   *    is what the Sheet's Status column stores).
+   *  - applyStatusBadge(): repaints a .status-badge element immediately —
+   *    Delivered gets the luxury green (#15803d bg, #ffffff text), Pending
+   *    keeps the gold badge — with the smooth CSS transition from style.css.
+   *  - syncOrderStatus(): POSTs { action: 'updateOrderStatus', orderId,
+   *    status } to APPS_SCRIPT_URL so Google Sheets persists the change.
+   * ------------------------------------------------------------------ */
+  window.LureiOrderStatus = (() => {
+    const endpoint = () => String(CONFIG.APPS_SCRIPT_URL || "").trim();
+
+    const normalize = (status) =>
+      String(status || "").trim().toLowerCase() === "delivered" ? "Delivered" : "Pending";
+
+    const isDeliveredStatus = (status) => normalize(status) === "Delivered";
+
+    const nextStatusFor = (current) => (isDeliveredStatus(current) ? "Pending" : "Delivered");
+
+    const applyStatusBadge = (element, status) => {
+      if (!element) return normalize(status);
+      const next = normalize(status);
+      const delivered = next === "Delivered";
+      element.classList.toggle("delivered", delivered);
+      element.classList.toggle("is-delivered", delivered);
+      element.classList.toggle("pending", !delivered);
+      if (element.hasAttribute("aria-pressed")) {
+        element.setAttribute("aria-pressed", String(delivered));
+      }
+      element.innerHTML = delivered ? "Delivered &#10003;" : "Pending";
+      return next;
+    };
+
+    const syncOrderStatus = (orderId, status) => {
+      const next = normalize(status);
+      const payload = { action: "updateOrderStatus", orderId, status: next };
+      if (gasBackend && typeof gasBackend.updateOrderStatus === "function") {
+        return gasBackend.updateOrderStatus(orderId, next);
+      }
+      const url = endpoint();
+      if (!url) return Promise.reject(new Error("APPS_SCRIPT_URL not configured"));
+      return fetch(url, {
+        method: "POST",
+        headers: { "Content-Type": "text/plain", Accept: "application/json" },
+        body: JSON.stringify(payload),
+      }).then((response) => {
+        if (!response.ok) {
+          throw new Error(`Google Apps Script responded with HTTP ${response.status}`);
+        }
+        return response.json().catch(() => ({}));
+      });
+    };
+
+    return {
+      endpoint: endpoint(),
+      normalize,
+      isDeliveredStatus,
+      nextStatusFor,
+      applyStatusBadge,
+      syncOrderStatus,
+    };
+  })();
 
   /* ------------------------------------------------------------------ *
    * 1c. Live storefront editor + master catalogue store

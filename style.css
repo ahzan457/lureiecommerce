@@ -5878,3 +5878,54 @@ body.lurei-modal-open {
     row-gap: 0.5rem;
   }
 }
+
+/* ==========================================================================
+   Order delivery status badges — admin dashboard toggle (PENDING / DELIVERED)
+   Gold = awaiting dispatch, luxury green = delivered. The transition keeps
+   the toggle feeling silky rather than snapping between states.
+   ========================================================================== */
+.status-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  padding: 0.5rem 0.95rem;
+  font-family: var(--font-sans);
+  font-size: 0.6rem;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  border-radius: 999px;
+  border: 1px solid transparent;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background-color 0.25s ease, color 0.25s ease,
+    border-color 0.25s ease, box-shadow 0.25s ease, transform 0.25s ease;
+}
+
+.status-badge.pending {
+  color: #1A1A1A;
+  background-color: #C5A059;
+  border-color: #8F7328;
+}
+
+.status-badge.pending:hover {
+  background-color: #8F7328;
+  border-color: #8F7328;
+  color: #FFFFFF;
+  transform: translateY(-1px);
+  box-shadow: 0 14px 30px -16px rgba(197, 160, 89, 0.5);
+}
+
+.status-badge.delivered {
+  background-color: #15803d;
+  border-color: #166534;
+  color: #ffffff;
+  box-shadow: 0 14px 30px -16px rgba(21, 128, 61, 0.55);
+}
+
+.status-badge.delivered:hover {
+  background-color: #166534;
+  border-color: #166534;
+  color: #fef08a;
+  transform: translateY(-1px);
+}

@@ -2930,7 +2930,7 @@
               '<td class="cell-total">' + formatAED(order.totalAED) + "</td>" +
               "<td>" + deliveryCellHTML(order) + "</td>" +
               "<td>" + paymentBadgeHTML(order) + "</td>" +
-              '<td><button class="status-toggle' + (delivered ? " is-delivered" : "") + '" type="button" ' +
+              '<td><button class="status-toggle status-badge ' + (delivered ? "delivered is-delivered" : "pending") + '" type="button" ' +
                 'data-order-id="' + escapeHTML(order.orderId) + '" ' +
                 'aria-pressed="' + String(delivered) + '" ' +
                 'aria-label="Toggle delivery status for ' + escapeHTML(order.orderId) + '">' +
@@ -2944,11 +2944,52 @@
 
       /* Toggle delivery status and persist it. Marking an order Delivered only
          records the delivery - it never files the order or moves any money, so
-         the Monthly Report still waits for its own click. On the live backend
-         the write is awaited so the badge only changes once the database
-         confirms, which stops the UI claiming a delivery that never saved. */
+         the Monthly Report still waits for its own click. The badge updates
+         immediately (optimistic UI): Delivered gets the luxury green treatment
+         (#15803d background, white text), Pending keeps the gold badge. The
+         Google Sheets write follows via POST { action: 'updateOrderStatus',
+         orderId, status } and a failure rolls the badge back. */
+      const paintStatusBadge = (button, delivered) => {
+        const label = delivered ? "Delivered" : "Pending";
+        button.classList.toggle("delivered", delivered);
+        button.classList.toggle("is-delivered", delivered);
+        button.classList.toggle("pending", !delivered);
+        button.setAttribute("aria-pressed", String(delivered));
+        button.innerHTML = delivered ? "Delivered &#10003;" : "Pending";
+        return label;
+      };
+
+      /* Backend Google Sheets sync: POSTs to the Apps Script Web App with
+         action 'updateOrderStatus'. Prefers the shared backend client
+         (script.js), falling back to a direct fetch against APPS_SCRIPT_URL
+         so the toggle works even if only one of the two is available. */
+      const syncOrderStatusToSheets = (orderId, status) => {
+        const payload = { action: "updateOrderStatus", orderId, status };
+        if (backendReady && backend) {
+          if (typeof backend.updateOrderStatus === "function") {
+            return backend.updateOrderStatus(orderId, status);
+          }
+          if (typeof backend.updateOrder === "function") {
+            return backend.updateOrder(orderId, status);
+          }
+        }
+        const endpoint =
+          (backend && typeof backend.getAppsScriptUrl === "function" && backend.getAppsScriptUrl()) ||
+          (window.LureiOrderStatus && window.LureiOrderStatus.endpoint) ||
+          "";
+        if (!endpoint) return Promise.reject(new Error("APPS_SCRIPT_URL not configured"));
+        return fetch(endpoint, {
+          method: "POST",
+          headers: { "Content-Type": "text/plain", Accept: "application/json" },
+          body: JSON.stringify(payload),
+        }).then((response) => {
+          if (!response.ok) throw new Error("Google Apps Script responded with HTTP " + response.status);
+          return response.json().catch(() => ({}));
+        });
+      };
+
       ordersBody.addEventListener("click", (event) => {
-        const button = event.target.closest(".status-toggle");
+        const button = event.target.closest(".status-toggle, .status-badge");
         if (!button) return;
         const orderId = button.dataset.orderId;
         const orders = readOrders();
@@ -2958,34 +2999,45 @@
           return;
         }
 
-        const nextStatus = isDelivered(target) ? "pending" : "delivered";
+        /* Toggle between "Pending" and "Delivered" (capitalised: the Sheet's
+           Status column uses Title Case, and the success toast reads
+           "Status updated to Delivered"). */
+        const nextDelivered = !isDelivered(target);
+        const nextStatus = nextDelivered ? "Delivered" : "Pending";
+        const previousDelivered = isDelivered(target);
+        const serverId = target._rowId || target.orderId || orderId;
+
+        /* Immediate UI update: repaint the badge before the network round-trip
+           so the toggle feels instant. */
+        target.status = nextStatus;
+        paintStatusBadge(button, nextDelivered);
+        button.disabled = true;
 
         const settle = () => {
+          button.disabled = false;
           renderAll();
-          showToast(orderId + " marked as " + target.status + ".");
+          showToast("Status updated to " + nextStatus);
+        };
+
+        const rollback = () => {
+          target.status = previousDelivered ? "Delivered" : "Pending";
+          paintStatusBadge(button, previousDelivered);
+          button.disabled = false;
         };
 
         if (!backendReady) {
-          target.status = nextStatus;
           writeOrders(orders);
           settle();
           return;
         }
 
-        const previousLabel = button.textContent;
-        button.disabled = true;
-        button.textContent = "Saving…";
-
-        backend
-          .updateOrderStatus(target._rowId, nextStatus)
+        syncOrderStatusToSheets(serverId, nextStatus)
           .then(() => {
-            target.status = nextStatus;
             settle();
           })
           .catch((error) => {
             console.warn("[Orders] status update failed:", error && error.message);
-            button.disabled = false;
-            button.textContent = previousLabel;
+            rollback();
             showToast("Could not save the status change. Please retry.");
           });
       });
