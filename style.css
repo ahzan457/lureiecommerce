@@ -165,14 +165,27 @@ body:not(.admin-page) .cart-drawer__item {
   background: var(--color-dark);
   color: var(--color-white);
   text-align: center;
-  font-size: 0.76rem;
-  letter-spacing: 0.16em;
+  font-family: var(--font-primary, 'Montserrat', sans-serif);
+  font-size: 12px;
+  font-weight: 500;
+  letter-spacing: 1.5px;
   text-transform: uppercase;
   padding: 0.78rem 1rem;
+  width: 100%;
+  display: flex;
+  justify-content: center;
+  align-items: center;
 }
 
-.announcement-bar__text strong {
-  color: var(--color-gold);
+.announcement-bar__text {
+  text-align: center;
+  width: 100%;
+  margin: 0;
+}
+
+.announcement-bar__text strong,
+.announcement-bar__text .highlight {
+  color: var(--color-accent, var(--color-gold, #d4af37));
   font-weight: 700;
 }
 

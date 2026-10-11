@@ -2132,18 +2132,63 @@
         localStorage.setItem(ORDERS_STORAGE_KEY, JSON.stringify(orders));
       };
 
+      /* ---------------- Zero-glitch sync helpers ----------------
+         Production hardening: Apps Script lock waits, quota HTML pages and
+         429/5xx responses are transient — retry once after 1s instead of
+         throwing UI errors. Writes are idempotent by Order ID, so the retry
+         can never duplicate or misplace a row. */
+      const isTransientSyncError = (error) => {
+        const msg = String((error && error.message) || error || "");
+        return (
+          /lock/i.test(msg) ||
+          /timeout|timed out|abort/i.test(msg) ||
+          /service (error|unavailable)|transient|try again|temporar/i.test(msg) ||
+          /non-JSON|HTML error/i.test(msg) ||
+          /HTTP (429|500|502|503|504)/.test(msg) ||
+          /<!DOCTYPE|<html/i.test(msg)
+        );
+      };
+
+      const sleepSync = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+      /* Runs fn(); on a transient failure (Apps Script lock, timeout, quota
+         HTML page, 429/5xx) waits 1s and runs it once more — up to 2 attempts
+         total. Non-transient refusals (unauthorized) reject immediately so
+         rollbacks still fire for real errors. A "No order with id" reply
+         never reaches here as an error: the shared backend already maps it
+         to success (already gone = deleted). */
+      const withSyncRetry = (fn) => {
+        try {
+          return Promise.resolve()
+            .then(() => fn())
+            .catch((firstError) => {
+              if (!isTransientSyncError(firstError)) throw firstError;
+              return sleepSync(1000).then(() => fn());
+            });
+        } catch (error) {
+          return Promise.reject(error);
+        }
+      };
+
+      /* Guards the background pollers below: a slow Sheet response must never
+         stack overlapping loadOrders/loadArchivedOrders calls. */
+      let syncInFlight = false;
+
       /* Fetches the authoritative order list. Re-renders on success and
          surfaces a toast on failure so a stale table is never mistaken for
-         "no orders yet". */
-      const loadOrders = () => {
+         "no orders yet". Optimistic deletes already repainted via renderAll()
+         before this runs, so this is the reconcile pass, not the first paint. */
+      const loadOrders = (options) => {
+        const silent = Boolean(options && options.silent);
         if (!backendReady) {
           renderAll();
-          hideToast();
+          if (!silent) hideToast();
           return Promise.resolve();
         }
+        if (syncInFlight) return Promise.resolve();
 
-        return backend
-          .fetchOrders()
+        syncInFlight = true;
+        return withSyncRetry(() => backend.fetchOrders())
           .then((rows) => {
             const list = Array.isArray(rows) ? rows.map(fromBackendRow).filter(Boolean) : [];
             /* Newest first, matching the store's ORDER BY. renderOverview()
@@ -2151,13 +2196,16 @@
             backendOrders = list.reverse();
             lastLoadFailed = false;
             renderAll();
-            hideToast();
+            if (!silent) hideToast();
           })
           .catch((error) => {
             lastLoadFailed = true;
             console.warn("[Orders] could not load from Google Sheets:", error && error.message);
-            showToast("Could not reach the order database. Showing the last known list.");
+            if (!silent) showToast("Could not reach the order database. Showing the last known list.");
             renderAll();
+          })
+          .then(() => {
+            syncInFlight = false;
           });
       };
 
@@ -2590,9 +2638,11 @@
            without the completed_orders table must not block a legitimate
            filing, and pushArchivedToBackend never rejects. It IS sequenced
            ahead of the DELETE though, so the rollback below cannot overtake the
-           insert and leave a server entry for an order that is still live. */
+           insert and leave a server entry for an order that is still live.
+           The DELETE retries once after 1s on lock/transient HTML errors. */
         return filed.pushed
-          .then(() => backend.deleteOrder(target.orderId))
+          .then(() => withSyncRetry(() => backend.deleteOrder(target.orderId)))
+          .then(() => loadOrders({ silent: true }))
           .then(() => true)
           .catch((error) => {
             console.warn("[Orders] removal failed:", error && error.message);
@@ -2603,7 +2653,7 @@
             if (backendReady) backendOrders = restoreAt(backendOrders, target, index);
             removeArchivedOrder(orderId);
             renderAll();
-            showToast("Could not remove this order. The database refused, so nothing was filed.");
+            showToast("Could not remove order " + orderId + ". Nothing was filed — please retry.");
             return false;
           });
       };
@@ -2612,13 +2662,22 @@
          never written to and never read from here, which is the whole point: a
          deleted test order must not resurface in a later month's report.
 
+         Multi-tab purge: the order leaves the in-memory list (backendOrders,
+         the single allOrders source renderAll reads) and renderAll() repaints
+         Overview recent orders, the Orders table AND the Monthly Report in one
+         pass — whichever tab the delete came from. The Sheet DELETE follows
+         with one automatic 1s retry on lock/transient errors, then a silent
+         re-fetch reconciles with the Sheet instead of trusting the optimistic
+         removal. A real refusal rolls the row back into its exact slot.
+
          Like the filing path it re-renders before the database round trip, and
          puts the row back if the server refuses - a 401/403 from the RLS policy
          is a real refusal and cannot be reported as a successful delete. */
       const deleteOrderForGood = (orderId) => {
+        orderId = String(orderId === undefined || orderId === null ? "" : orderId).trim();
         const orders = readOrders();
-        const index = orders.findIndex((order) => order.orderId === orderId);
-        if (index === -1) {
+        const index = orders.findIndex((order) => String(order.orderId).trim() === orderId);
+        if (index === -1 || !orderId) {
           showToast("That order is no longer in the list.");
           return Promise.resolve(false);
         }
@@ -2630,26 +2689,35 @@
           return Promise.resolve(false);
         }
 
+        /* Instant optimistic deletion: the row leaves the in-memory allOrders
+           source (backendOrders) and renderAll() repaints Orders, Overview
+           and Monthly Report DOM in the same tick — before the network. */
         if (backendReady) {
-          backendOrders = (backendOrders || []).filter((order) => order.orderId !== orderId);
+          backendOrders = (backendOrders || []).filter((order) => String(order.orderId).trim() !== orderId);
         } else {
-          writeOrders(readOrders().filter((order) => order.orderId !== orderId));
+          writeOrders(readOrders().filter((order) => String(order.orderId).trim() !== orderId));
         }
         renderAll();
 
-        if (!backendReady) return Promise.resolve(true);
+        if (!backendReady) {
+          showToast("Order deleted successfully");
+          return Promise.resolve(true);
+        }
 
-        return backend
-          .deleteOrder(target.orderId)
+        return withSyncRetry(() => backend
+          .deleteOrder(target.orderId))
           /* Re-fetched after the server confirms, so the board reconciles
              with the Sheet instead of trusting the optimistic removal. */
-          .then(() => loadOrders())
-          .then(() => true)
+          .then(() => loadOrders({ silent: true }))
+          .then(() => {
+            showToast("Order deleted successfully");
+            return true;
+          })
           .catch((error) => {
             console.warn("[Orders] delete failed:", error && error.message);
             backendOrders = restoreAt(backendOrders, target, index);
             renderAll();
-            showToast("The database refused the delete, so order " + orderId + " was kept.");
+            showToast("Could not delete order " + orderId + ". Please retry.");
             return false;
           });
       };
@@ -2691,11 +2759,9 @@
         if (!window.confirm("Are you sure you want to delete this order?")) return;
         button.disabled = true;
         deleteOrderForGood(orderId).then((deleted) => {
-          if (deleted) {
-            showToast("Order " + orderId + " deleted. It was never counted as revenue.");
-          } else {
-            /* Only reachable on a refusal, and renderAll() has already rebuilt
-               the row by then, so this detached button is off screen anyway. */
+          if (!deleted) {
+            /* Only reachable on a genuine refusal, and renderAll() has already
+               rebuilt the row by then, so this detached button is off screen anyway. */
             button.disabled = false;
           }
         });
@@ -2715,8 +2781,9 @@
          the row had to be put back. Nothing rejects, like the two live actions
          above. */
       const deleteLoggedOrderForGood = (orderId) => {
-        const index = archivedOrders.findIndex((entry) => entry.orderId === orderId);
-        if (index === -1) {
+        orderId = String(orderId === undefined || orderId === null ? "" : orderId).trim();
+        const index = archivedOrders.findIndex((entry) => String(entry.orderId).trim() === orderId);
+        if (index === -1 || !orderId) {
           showToast("That confirmed order is no longer in the log.");
           return Promise.resolve(false);
         }
@@ -2731,7 +2798,7 @@
           return Promise.resolve(false);
         }
 
-        archivedOrders = archivedOrders.filter((entry) => entry.orderId !== orderId);
+        archivedOrders = archivedOrders.filter((entry) => String(entry.orderId).trim() !== orderId);
         writeStoredArchive();
 
         /* renderAll(), not just renderReport(): confirmedOrders() is the source
@@ -2740,11 +2807,18 @@
            shortened list here rather than patched one field at a time. */
         renderAll();
 
-        if (!backendReady) return Promise.resolve(true);
+        if (!backendReady) {
+          showToast("Order deleted successfully");
+          return Promise.resolve(true);
+        }
 
-        return backend
-          .deleteCompletedOrder(orderId)
-          .then(() => true)
+        return withSyncRetry(() => backend
+          .deleteCompletedOrder(orderId))
+          .then(() => loadArchivedOrders({ silent: true }))
+          .then(() => {
+            showToast("Order deleted successfully");
+            return true;
+          })
           .catch((error) => {
             console.warn("[Monthly Report] log delete failed:", error && error.message);
             /* Re-inserted then re-sorted rather than spliced back at index: the log
@@ -2752,12 +2826,12 @@
                back where it belongs without the months underneath it moving.
                Refusing the delete has to mean the money stays on the books. */
             archivedOrders = archivedOrders
-              .filter((entry) => entry.orderId !== orderId)
+              .filter((entry) => String(entry.orderId).trim() !== orderId)
               .concat([target]);
             sortArchivedOrders();
             writeStoredArchive();
             renderAll();
-            showToast("The database refused the delete, so " + orderId + " is still counted as revenue.");
+            showToast("Could not delete order " + orderId + ". Please retry.");
             return false;
           });
       };
@@ -2784,11 +2858,9 @@
 
         button.disabled = true;
         deleteLoggedOrderForGood(orderId).then((deleted) => {
-          if (deleted) {
-            showToast("Order " + orderId + " deleted. " + formatAED(entry.totalAED) + " removed from confirmed revenue.");
-          } else {
-            /* Only reachable on a refusal, and renderAll() has already rebuilt
-               the row by then, so this detached button is off screen anyway. */
+          if (!deleted) {
+            /* Only reachable on a genuine refusal, and renderAll() has already
+               rebuilt the row by then, so this detached button is off screen anyway. */
             button.disabled = false;
           }
         });
@@ -2962,15 +3034,18 @@
       /* Backend Google Sheets sync: POSTs to the Apps Script Web App with
          action 'updateOrderStatus'. Prefers the shared backend client
          (script.js), falling back to a direct fetch against APPS_SCRIPT_URL
-         so the toggle works even if only one of the two is available. */
+         so the toggle works even if only one of the two is available.
+         Transient lock/HTML errors retry once after 1s via withSyncRetry at
+         the call site; this helper stays a single attempt so retries compose
+         in exactly one place. */
       const syncOrderStatusToSheets = (orderId, status) => {
         const payload = { action: "updateOrderStatus", orderId, status };
         if (backendReady && backend) {
           if (typeof backend.updateOrderStatus === "function") {
-            return backend.updateOrderStatus(orderId, status);
+            return withSyncRetry(() => backend.updateOrderStatus(orderId, status));
           }
           if (typeof backend.updateOrder === "function") {
-            return backend.updateOrder(orderId, status);
+            return withSyncRetry(() => backend.updateOrder(orderId, status));
           }
         }
         const endpoint =
@@ -2978,14 +3053,26 @@
           (window.LureiOrderStatus && window.LureiOrderStatus.endpoint) ||
           "";
         if (!endpoint) return Promise.reject(new Error("APPS_SCRIPT_URL not configured"));
-        return fetch(endpoint, {
+        const bust = (url) => {
+          try {
+            const u = new URL(url, window.location.href);
+            u.searchParams.set("_t", String(Date.now()));
+            return u.toString();
+          } catch {
+            const sep = url.indexOf("?") === -1 ? "?" : "&";
+            return url + sep + "_t=" + Date.now();
+          }
+        };
+        const singlePost = () => fetch(bust(endpoint), {
           method: "POST",
+          cache: "no-store",
           headers: { "Content-Type": "text/plain", Accept: "application/json" },
           body: JSON.stringify(payload),
         }).then((response) => {
           if (!response.ok) throw new Error("Google Apps Script responded with HTTP " + response.status);
           return response.json().catch(() => ({}));
         });
+        return withSyncRetry(singlePost);
       };
 
       ordersBody.addEventListener("click", (event) => {
@@ -3168,8 +3255,12 @@
         }
 
         input.disabled = true;
-        backend
-          .updateOrderDeliveryDate(target._rowId, nextDate)
+        /* Order ID (not the row index): Code.gs re-resolves the Sheet row by
+           ID at write time, so row shifts after deletes can never misplace
+           the date. Retries once after 1s on lock/transient errors. */
+        const deliveryId = target.orderId || orderId;
+        withSyncRetry(() => backend
+          .updateOrderDeliveryDate(deliveryId, nextDate))
           .then(() => {
             renderAll();
             showToast(
@@ -4578,8 +4669,10 @@
 
       /* renderAll(), not just renderReport(): revenue and every chart are read from
          this log, so a log change - including one made in another tab or on
-         another device - has to move the Overview tiles too. */
-      const loadArchivedOrders = () => {
+         another device - has to move the Overview tiles too. Silent background
+         polls pass { silent:true } to skip toasts; transient failures retry
+         once after 1s. */
+      const loadArchivedOrders = (options) => {
         archivedOrders = readStoredArchive();
         sortArchivedOrders();
 
@@ -4588,8 +4681,7 @@
           return Promise.resolve();
         }
 
-        return backend
-          .fetchCompletedOrders()
+        return withSyncRetry(() => backend.fetchCompletedOrders())
           .then((rows) => {
             const list = Array.isArray(rows) ? rows.map(fromCompletedRow).filter(Boolean) : [];
             /* Union, not replace: the server copy is the shared one, but an
@@ -5363,16 +5455,42 @@ const exportCSV = () => {
         }
       });
 
-      /* Re-read the database whenever this tab regains focus, which covers
-         any update missed while the tab sat in the background. The Monthly
-         Report goes with it: an order filed on the owner's phone is only in
-         this tab's log until the server copy is read back. */
+      /* Re-read the database whenever this tab regains focus or visibility,
+         which covers any update missed while the tab sat in the background
+         (e.g. a checkout placed on the storefront tab). The Monthly Report
+         goes with it: an order filed on the owner's phone is only in this
+         tab's log until the server copy is read back. Silent so returning to
+         the tab never flashes error toasts for a blip. */
+      const resyncFromBackground = () => {
+        if (document.visibilityState !== "visible") return;
+        loadOrders({ silent: true });
+        loadArchivedOrders({ silent: true });
+      };
+
       window.addEventListener("focus", () => {
         if (document.visibilityState === "visible") {
-          loadOrders();
-          loadArchivedOrders();
+          resyncFromBackground();
         }
       });
+
+      document.addEventListener("visibilitychange", () => {
+        if (!document.hidden && document.visibilityState === "visible") {
+          resyncFromBackground();
+        }
+      });
+
+      /* Automatic background polling: every 30s while the tab is visible,
+         silently re-fetch Sheet data so Checkout -> append -> auto-sync ->
+         multi-view render needs no refresh. Skipped when hidden (the
+         visibilitychange handler above covers the return) and guarded by
+         syncInFlight so a slow response never stacks requests. */
+      const AUTO_SYNC_MS = 30000;
+      window.setInterval(() => {
+        if (document.hidden || document.visibilityState !== "visible") return;
+        if (syncInFlight) return;
+        loadOrders({ silent: true });
+        loadArchivedOrders({ silent: true });
+      }, AUTO_SYNC_MS);
 
 /* ---------------- Boot ----------------
           applyChartTheme() runs before the first load so the very first chart

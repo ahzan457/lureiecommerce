@@ -95,38 +95,89 @@
   };
 
   const gasRequest = async (action, body, withKey) => {
-    const endpoint = gasEndpoint(action, withKey);
-    if (!endpoint) throw new Error("APPS_SCRIPT_URL not configured");
-
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), CONFIG.REQUEST_TIMEOUT_MS);
-    try {
-      const response = body
-        ? await fetch(endpoint, {
-            method: "POST",
-            cache: "no-store",
-            signal: controller.signal,
-            /* text/plain keeps this a CORS-simple request: application/json
-               triggers a preflight OPTIONS the Apps Script endpoint never
-               answers, so every admin write fails before it is sent. The
-               script parses postData.contents as JSON regardless of the
-               content type, so nothing server-side changes. */
-            headers: { "Content-Type": "text/plain", Accept: "application/json" },
-            body: JSON.stringify(Object.assign({ apiKey: CONFIG.ADMIN_API_KEY }, body)),
-          })
-        : await fetch(endpoint, {
-            method: "GET",
-            cache: "no-store",
-            signal: controller.signal,
-            headers: { Accept: "application/json" },
-          });
-
-      if (!response.ok) {
-        throw new Error(`Google Apps Script responded with HTTP ${response.status}`);
+    /* Zero-glitch sync: every request carries cache:'no-store' plus a
+       ?_t=Date.now() buster (appended in gasEndpoint callers and here as a
+       fallback), and transient Apps Script failures (script lock, quota HTML
+       error pages, 429/5xx) are retried once after 1s instead of surfacing
+       as UI errors. Writes stay idempotent by Order ID, so the retry is safe. */
+    const isTransientGasError = (err) => {
+      const msg = String((err && err.message) || err || "");
+      return (
+        /lock/i.test(msg) ||
+        /timeout|timed out|abort/i.test(msg) ||
+        /service (error|unavailable)|transient|try again|temporar/i.test(msg) ||
+        /HTTP (429|500|502|503|504)/.test(msg) ||
+        /<!DOCTYPE|<html/i.test(msg) ||
+        /ScriptError|Exception: /.test(msg)
+      );
+    };
+    const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+    const withBuster = (url) => {
+      try {
+        const u = new URL(url, window.location.href);
+        u.searchParams.set("_t", String(Date.now()));
+        return u.toString();
+      } catch {
+        const sep = url.indexOf("?") === -1 ? "?" : "&";
+        return url + sep + "_t=" + Date.now();
       }
-      return unwrapGas(await response.json());
-    } finally {
-      clearTimeout(timer);
+    };
+
+    const attempt = async () => {
+      const endpoint = withBuster(gasEndpoint(action, withKey));
+      if (!endpoint) throw new Error("APPS_SCRIPT_URL not configured");
+
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), CONFIG.REQUEST_TIMEOUT_MS);
+      try {
+        const response = body
+          ? await fetch(endpoint, {
+              method: "POST",
+              cache: "no-store",
+              signal: controller.signal,
+              /* text/plain keeps this a CORS-simple request: application/json
+                 triggers a preflight OPTIONS the Apps Script endpoint never
+                 answers, so every admin write fails before it is sent. The
+                 script parses postData.contents as JSON regardless of the
+                 content type, so nothing server-side changes. */
+              headers: { "Content-Type": "text/plain", Accept: "application/json" },
+              body: JSON.stringify(Object.assign({ apiKey: CONFIG.ADMIN_API_KEY }, body)),
+            })
+          : await fetch(endpoint, {
+              method: "GET",
+              cache: "no-store",
+              signal: controller.signal,
+              headers: { Accept: "application/json" },
+            });
+
+        if (!response.ok) {
+          throw new Error(`Google Apps Script responded with HTTP ${response.status}`);
+        }
+        const text = await response.text();
+        /* Apps Script quota/lock failures arrive as an HTML error page with
+           HTTP 200 — detect the markup and treat it as transient so the
+           retry below fires instead of JSON.parse throwing a confusing error. */
+        if (/^\s*</.test(text) && /<!DOCTYPE|<html/i.test(text)) {
+          throw new Error("Apps Script returned a transient HTML error page; retrying");
+        }
+        let parsed;
+        try {
+          parsed = JSON.parse(text);
+        } catch {
+          throw new Error("Apps Script returned non-JSON; retrying");
+        }
+        return unwrapGas(parsed);
+      } finally {
+        clearTimeout(timer);
+      }
+    };
+
+    try {
+      return await attempt();
+    } catch (firstError) {
+      if (!isTransientGasError(firstError)) throw firstError;
+      await sleep(1000);
+      return await attempt();
     }
   };
 
@@ -174,13 +225,14 @@
       return data;
     },
 
-    /* Shopper checkout — public by design, so this sends no api key. Sent
-       fire-and-forget with mode: "no-cors" so the browser never blocks the
-       save on a CORS preflight (Apps Script web apps don't answer OPTIONS).
-       A no-cors response is opaque — status and body are hidden — so
-       delivery can't be confirmed here and the body is never parsed. The
-       order is already safe in localStorage; the Sheet write resolves
-       silently and only a network failure rejects. */
+    /* Shopper checkout — public by design, so this sends no api key.
+       Tries a confirmed CORS-simple POST first (text/plain + no-store +
+       ?_t buster, no preflight), so the Sheet append can be verified. If the
+       browser still blocks it, falls back to the fire-and-forget no-cors
+       send: the response is opaque then, so delivery can't be confirmed and
+       the body is never parsed. Either way the order is already safe in
+       localStorage (which wakes the dashboard via its storage listener) and
+       the dashboard's focus/visibility re-sync picks up the Sheet row. */
     insertOrder: async (order) => {
       if (!gasConfigured()) {
         return { skipped: true, reason: "not-configured" };
@@ -231,13 +283,32 @@
         payment: record.payment,
         paymentMethod: record.paymentMethod,
       };
-      await fetch(gasEndpoint("insertOrder"), {
-        method: "POST",
-        mode: "no-cors",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
-      });
-      return { ok: true, unconfirmed: true };
+      const bust = (url) => {
+        try {
+          const u = new URL(url, window.location.href);
+          u.searchParams.set("_t", String(Date.now()));
+          return u.toString();
+        } catch {
+          const sep = url.indexOf("?") === -1 ? "?" : "&";
+          return url + sep + "_t=" + Date.now();
+        }
+      };
+      /* Confirmed path first: CORS-simple (text/plain, no preflight). */
+      try {
+        const confirmed = await gasRequest("insertOrder", payload);
+        return { ok: true, confirmed: true, response: confirmed };
+      } catch (confirmedError) {
+        /* Fall back to opaque fire-and-forget so the order still reaches the
+           Sheet when the confirmed read is blocked; only a network failure
+           rejects from here. */
+        await fetch(bust(gasEndpoint("insertOrder")), {
+          method: "POST",
+          mode: "no-cors",
+          headers: { "Content-Type": "text/plain" },
+          body: JSON.stringify(payload),
+        });
+        return { ok: true, unconfirmed: true };
+      }
     },
 
     /** Public: this is the catalogue the storefront renders from. */
@@ -250,26 +321,66 @@
     /* Public read by design: the order list is fetched with no ADMIN_API_KEY
        requirement — a missing or empty key must never block this GET. The
        key is only ever attached to admin writes (status, delete, archive).
-       Direct Apps Script call: a standard GET to APPS_SCRIPT_URL with no
-       AbortController signals and no client wrappers. */
+       Zero-glitch read: cache:'no-store' + ?_t=Date.now() buster, an
+       AbortController timeout, and one automatic 1s retry on transient
+       lock/HTML/5xx failures. */
     fetchOrders: async () => {
       if (!gasConfigured()) return [];
-      const endpoint = gasEndpoint("orders");
-      const response = await fetch(endpoint, {
-        method: "GET",
-        cache: "no-store",
-        headers: { Accept: "application/json" },
-      });
-      if (!response.ok) {
-        throw new Error(`Google Apps Script responded with HTTP ${response.status}`);
+      const bust = (url) => {
+        try {
+          const u = new URL(url, window.location.href);
+          u.searchParams.set("_t", String(Date.now()));
+          return u.toString();
+        } catch {
+          const sep = url.indexOf("?") === -1 ? "?" : "&";
+          return url + sep + "_t=" + Date.now();
+        }
+      };
+      const attempt = async () => {
+        const controller = new AbortController();
+        const timer = setTimeout(() => controller.abort(), CONFIG.REQUEST_TIMEOUT_MS);
+        try {
+          const response = await fetch(bust(gasEndpoint("orders")), {
+            method: "GET",
+            cache: "no-store",
+            signal: controller.signal,
+            headers: { Accept: "application/json" },
+          });
+          if (!response.ok) {
+            throw new Error(`Google Apps Script responded with HTTP ${response.status}`);
+          }
+          const text = await response.text();
+          if (/^\s*</.test(text) && /<!DOCTYPE|<html/i.test(text)) {
+            throw new Error("Apps Script returned a transient HTML error page; retrying");
+          }
+          let data;
+          try {
+            data = JSON.parse(text);
+          } catch {
+            throw new Error("Apps Script returned non-JSON; retrying");
+          }
+          const unwrapped = unwrapGas(data);
+          /* The deployed Web App returns the order list as a bare JSON array of
+             sheet rows; local envelope builds answer { orders: [...] }. Accept
+             both, and surface an error payload instead of a silent blank table. */
+          if (Array.isArray(unwrapped)) return unwrapped;
+          if (unwrapped && unwrapped.error) throw new Error(String(unwrapped.error));
+          return Array.isArray(unwrapped.orders) ? unwrapped.orders : [];
+        } finally {
+          clearTimeout(timer);
+        }
+      };
+      try {
+        return await attempt();
+      } catch (firstError) {
+        const msg = String((firstError && firstError.message) || firstError || "");
+        const transient =
+          /lock|timeout|abort|transient|try again|temporar|non-JSON|HTML error/i.test(msg) ||
+          /HTTP (429|500|502|503|504)/.test(msg);
+        if (!transient) throw firstError;
+        await new Promise((resolve) => setTimeout(resolve, 1000));
+        return await attempt();
       }
-      const data = unwrapGas(await response.json());
-      /* The deployed Web App returns the order list as a bare JSON array of
-         sheet rows; local envelope builds answer { orders: [...] }. Accept
-         both, and surface an error payload instead of a silent blank table. */
-      if (Array.isArray(data)) return data;
-      if (data && data.error) throw new Error(String(data.error));
-      return Array.isArray(data.orders) ? data.orders : [];
     },
 
     /* The dashboard's isDelivered() treats "delivered" and "completed" as the
@@ -302,8 +413,44 @@
       return gasRequest("archiveOrder", { order });
     },
 
-    deleteOrder: (orderId) => gasRequest("deleteOrder", { orderId }),
-    deleteCompletedOrder: (orderId) => gasRequest("deleteOrder", { orderId }),
+    /* Delete is idempotent by Order ID: the id is trimmed before send, the
+       request rides gasRequest (no-store + ?_t buster, auto-retry up to 2
+       attempts on transient lock/HTML/5xx errors), and a "No order with id"
+       reply means the row is already gone — treated as success so the
+       dashboard never reports "refused" for a delete that already happened
+       (double-click, retried request, or row filed then deleted). */
+    deleteOrder: async (orderId) => {
+      const id = String(orderId === undefined || orderId === null ? "" : orderId).trim();
+      if (!id) throw new Error("deleteOrder needs an orderId.");
+      try {
+        return await gasRequest("deleteOrder", { orderId: id });
+      } catch (error) {
+        if (/No order with id/i.test(String((error && error.message) || error || ""))) {
+          return { ok: true, alreadyGone: true, deletedId: id };
+        }
+        throw error;
+      }
+    },
+    deleteCompletedOrder: async (orderId) => {
+      const id = String(orderId === undefined || orderId === null ? "" : orderId).trim();
+      if (!id) throw new Error("deleteOrder needs an orderId.");
+      try {
+        return await gasRequest("deleteOrder", { orderId: id });
+      } catch (error) {
+        if (/No order with id/i.test(String((error && error.message) || error || ""))) {
+          return { ok: true, alreadyGone: true, deletedId: id };
+        }
+        throw error;
+      }
+    },
+
+    /* Req. delivery-date writer the dashboard's date chip calls. Was missing
+       entirely (dashboard called backend.updateOrderDeliveryDate and always
+       threw TypeError in backend mode); now persists via the updateDeliveryDate
+       action in Code.gs, which creates the column on legacy sheets. Retries
+       ride on gasRequest's transient handling. */
+    updateOrderDeliveryDate: (orderId, date) => gasRequest("updateDeliveryDate", { orderId, date }),
+    updateDeliveryDate: (orderId, date) => gasRequest("updateDeliveryDate", { orderId, date }),
 
     addProduct: (product) => gasRequest("addProduct", { product }),
     updateProduct: (product) => gasRequest("updateProduct", { product }),

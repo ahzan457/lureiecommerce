@@ -30,12 +30,21 @@
  *   GET  ?action=health         -> { ok, configured, orders, products }
  *   POST { action: "insertOrder", order }     -> public; flat fields also accepted
  *   POST { action: "signIn", email, password }-> { ok, session } (needs ADMIN_EMAIL/PASSWORD)
- *   POST admin actions (need apiKey once ADMIN_API_KEY is set):
- *        updateOrderStatus { orderId, status }
- *        deleteOrder       { orderId } -> { status: "success", deletedId, ok: true }
- *        archiveOrder      { order }   -> marks the row delivered
- *        addProduct / updateProduct / updateStock -> generic header-mapped writes
- * ========================================================================== */
+  *   POST admin actions (need apiKey once ADMIN_API_KEY is set):
+  *        updateOrderStatus { orderId, status }
+  *        updateDeliveryDate { orderId, date } -> { ok, orderId, date }
+  *        deleteOrder       { orderId } -> { status: "success", deletedId, ok: true }
+  *        archiveOrder      { order }   -> marks the row delivered
+  *        addProduct / updateProduct / updateStock -> generic header-mapped writes
+  *
+  * SYNC CONTRACT (production hardening)
+  *   Reads should be fetched with cache: 'no-store' plus a cache-buster
+  *   (?_t=Date.now()) — Apps Script and proxies otherwise serve stale rows
+  *   for seconds after an append/delete. Writes are idempotent by Order ID
+  *   (delete/status/delivery-date resolve the row by ID, never by index), so
+  *   a client-side 1-second retry after a lock/transient HTML error is safe
+  *   and must not create duplicates.
+  * ========================================================================== */
 
 var ORDER_HEADERS = [
   "Order ID",
@@ -110,8 +119,29 @@ function doPost(e) {
         }
         case "updateOrderStatus":
           return out_({ ok: true, order: updateOrderStatus_(payload.orderId, payload.status) });
+        case "updateDeliveryDate":
+          return out_({
+            ok: true,
+            order: updateDeliveryDate_(payload.orderId, payload.date !== undefined ? payload.date : payload.deliveryDate),
+          });
         case "deleteOrder": {
-          var deletedId = deleteOrder_(payload.orderId);
+          /* Accepts every id spelling the clients send (orderId / order_id /
+             id / "Order ID", or nested inside order) so a valid delete is
+             never refused for a key-name mismatch. */
+          var rawOrder = payload.order && typeof payload.order === "object" ? payload.order : null;
+          var deleteId =
+            payload.orderId !== undefined && payload.orderId !== null && payload.orderId !== ""
+              ? payload.orderId
+              : payload.order_id !== undefined && payload.order_id !== null && payload.order_id !== ""
+                ? payload.order_id
+                : payload.id !== undefined && payload.id !== null && payload.id !== ""
+                  ? payload.id
+                  : payload["Order ID"] !== undefined && payload["Order ID"] !== null && payload["Order ID"] !== ""
+                    ? payload["Order ID"]
+                    : rawOrder
+                      ? rawOrder.orderId || rawOrder.order_id || rawOrder.id || rawOrder["Order ID"] || ""
+                      : "";
+          var deletedId = deleteOrder_(deleteId);
           return out_({ status: "success", deletedId: deletedId, ok: true, deleted: deletedId });
         }
         case "archiveOrder":
@@ -248,23 +278,52 @@ function findRowBy_(sheet, column, value) {
   if (col === -1) return null;
   var lastRow = sheet.getLastRow();
   if (lastRow < 2) return null;
-  var key = String(value);
+  /* Normalized comparison: both sides become trimmed, case-folded strings,
+     so "LUREI-123 ", "lurei-123" and "LUREI-123" all match the same row.
+     Case-sensitive misses used to surface as "No order with id" and the
+     dashboard reported them as "database refused to delete". */
+  var key = normalizeId_(value);
+  if (!key) return null;
   var values = sheet.getRange(2, col, lastRow - 1, 1).getValues();
   for (var i = 0; i < values.length; i++) {
-    if (String(values[i][0]) === key) return i + 2;
+    if (normalizeId_(values[i][0]) === key) return i + 2;
   }
   return null;
 }
 
-/* Resolves whichever identifier the caller has: the snake_case store
-   columns or the live sheet's Title Case "Order ID" (Column A). */
+/* Canonical ID form for every comparison in this file: trimmed and
+   lowercased. Order IDs are case-insensitive identifiers (LUREI-123). */
+function normalizeId_(value) {
+  return String(value === undefined || value === null ? "" : value).trim().toLowerCase();
+}
+
+/* Resolves whichever identifier the caller has across every known spelling
+   plus a Column A / Column B full-scan fallback for legacy sheets whose
+   header differs from all of them. Comparison is normalized (trimmed +
+   case-insensitive) on both sides. */
 function findOrderRow_(sheet, id) {
-  if (id === undefined || id === null || id === "") return null;
-  var row = findRowBy_(sheet, "id", id);
-  if (row) return row;
-  row = findRowBy_(sheet, "order_id", id);
-  if (row) return row;
-  return findRowBy_(sheet, "Order ID", id);
+  var key = normalizeId_(id);
+  if (!key) return null;
+  var names = ["Order ID", "OrderID", "Order Id", "ORDER ID", "order_id", "orderId", "ID", "id"];
+  for (var n = 0; n < names.length; n++) {
+    var row = findRowBy_(sheet, names[n], key);
+    if (row) return row;
+  }
+  /* Last resort: scan columns A and B directly for legacy sheets whose
+     header matches none of the spellings above. Normalized on both sides. */
+  try {
+    var lastRow = sheet.getLastRow();
+    if (lastRow >= 2) {
+      var lastCol = Math.min(Math.max(sheet.getLastColumn(), 1), 2);
+      var block = sheet.getRange(2, 1, lastRow - 1, lastCol).getValues();
+      for (var i = 0; i < block.length; i++) {
+        for (var c = 0; c < block[i].length; c++) {
+          if (normalizeId_(block[i][c]) === key) return i + 2;
+        }
+      }
+    }
+  } catch (err) {}
+  return null;
 }
 
 function setCellByNames_(sheet, rowNumber, names, value) {
@@ -377,11 +436,44 @@ function updateOrderStatus_(orderId, status) {
 
 function deleteOrder_(orderId) {
   return withLock_(function () {
+    /* ID-based, never index-based: row numbers shift after every delete, so
+       the client always sends the Order ID and the row is re-resolved here
+       at write time across all known ID columns (Order ID / OrderID / id /
+       Column A/B fallback) with normalized comparison. On a match the row is
+       deleted immediately and a clean success is returned — no strict
+       post-delete blockers: the deleteRow call inside the script lock is
+       authoritative, and a stale re-read must never convert a valid delete
+       into a "refused" error for the dashboard. */
+    var raw = String(orderId === undefined || orderId === null ? "" : orderId).trim();
+    if (!raw) throw new Error("deleteOrder needs an orderId.");
     var sheet = ordersSheet_();
-    var row = findOrderRow_(sheet, orderId);
-    if (!row) throw new Error("No order with id " + orderId);
+    var row = findOrderRow_(sheet, raw);
+    if (!row) throw new Error("No order with id " + raw);
     sheet.deleteRow(row);
-    return String(orderId);
+    SpreadsheetApp.flush();
+    return String(raw);
+  });
+}
+
+/* Requested-delivery-date writer for the dashboard's Req. Delivery chip.
+   Creates the "Requested Delivery Date" header when an older sheet lacks it,
+   so the write never fails with "No date column" on legacy spreadsheets. */
+function updateDeliveryDate_(orderId, date) {
+  return withLock_(function () {
+    var key = String(orderId === undefined || orderId === null ? "" : orderId).trim();
+    if (!key) throw new Error("updateDeliveryDate needs an orderId.");
+    var next = String(date === undefined || date === null ? "" : date).trim();
+    var sheet = ordersSheet_();
+    var row = findOrderRow_(sheet, key);
+    if (!row) throw new Error("No order with id " + key);
+    var col = columnByNames_(sheet, ["Requested Delivery Date", "requested_delivery_date", "Delivery Date"]);
+    if (col === -1) {
+      var headerCol = sheet.getLastColumn() + 1;
+      sheet.getRange(1, headerCol).setValue("Requested Delivery Date");
+      col = headerCol;
+    }
+    sheet.getRange(row, col).setValue(next);
+    return { orderId: key, date: next };
   });
 }
 
@@ -490,12 +582,6 @@ function updateStock_(id, stock) {
     }
     return { id: id, stock: next };
   });
-}
-
-function requireProducts_() {
-  var sheet = productsSheet_();
-  if (!sheet) throw new Error('No "Products" sheet in this spreadsheet.');
-  return sheet;
 }
 
 /* ============================ auth ====================================== */
