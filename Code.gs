@@ -142,7 +142,13 @@ function doPost(e) {
                       ? rawOrder.orderId || rawOrder.order_id || rawOrder.id || rawOrder["Order ID"] || ""
                       : "";
           var deletedId = deleteOrder_(deleteId);
-          return out_({ status: "success", deletedId: deletedId, ok: true, deleted: deletedId });
+          return out_({
+            status: "success",
+            deletedId: deletedId,
+            ok: true,
+            deleted: deletedId,
+            message: "Order deleted successfully",
+          });
         }
         case "archiveOrder":
           return out_({ ok: true, order: archiveOrder_(payload.order || payload) });
