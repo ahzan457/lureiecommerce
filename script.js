@@ -561,9 +561,74 @@
     { value: "watches", label: "Watches" },
   ];
 
-  /* Special dropdown value that reveals the free-text new-category input in
-     the Add Product modal instead of picking a fixed category. */
-  var NEW_CATEGORY = "NEW_CATEGORY";
+  /* Explicitly created custom categories: UPPERCASE keys the owner typed in
+     the Add Product modal combo (e.g. "DRESSES"), persisted so their tabs
+     return on reload. Tabs are rendered from this registry only — product
+     data is never scanned, so type variants (necklace/ring/watch) can never
+     spawn duplicate buttons. */
+  var CREATED_CATEGORIES_KEY = "lurei_created_categories";
+
+  var readCreatedCategories = function () {
+    try {
+      var parsed = JSON.parse(localStorage.getItem(CREATED_CATEGORIES_KEY) || "[]");
+      if (!Array.isArray(parsed)) return [];
+      return parsed.filter(function (key) {
+        return typeof key === "string" && key.trim() !== "";
+      });
+    } catch (error) {
+      return [];
+    }
+  };
+
+  var persistCreatedCategory = function (key) {
+    try {
+      var stored = readCreatedCategories();
+      if (stored.indexOf(key) === -1) {
+        stored.push(key);
+        localStorage.setItem(CREATED_CATEGORIES_KEY, JSON.stringify(stored));
+      }
+    } catch (error) {}
+  };
+
+  /* Fixed-tab lookup: exact values plus singular/plural variants, so typing
+     "Ring" or "WATCHES" lands on the existing tab instead of a duplicate. */
+  var STATIC_CATEGORY_VALUES = ["earrings", "rings", "necklaces", "bracelets", "watches"];
+  var STATIC_CATEGORY_ALIASES = {
+    earring: "earrings",
+    necklace: "necklaces",
+    ring: "rings",
+    bracelet: "bracelets",
+    bangle: "bracelets",
+    bangles: "bracelets",
+    watch: "watches",
+  };
+
+  /* Resolves combo text to a stored type value. Fixed (incl. variants) ->
+     the fixed slug, never new. Anything else -> UPPERCASE key, registered on
+     first use. Returns { value, isNew }. */
+  var resolveCategoryValue = function (text) {
+    var raw = String(text || "").trim();
+    if (!raw) return { value: "", isNew: false };
+    var lower = raw.toLowerCase();
+    if (STATIC_CATEGORY_VALUES.indexOf(lower) !== -1) return { value: lower, isNew: false };
+    if (STATIC_CATEGORY_ALIASES[lower]) return { value: STATIC_CATEGORY_ALIASES[lower], isNew: false };
+    var key = raw.toUpperCase();
+    var existed = readCreatedCategories().indexOf(key) !== -1;
+    if (!existed) persistCreatedCategory(key);
+    return { value: key, isNew: !existed };
+  };
+
+  /* Suggestion list for the modal combo: fixed labels plus created customs.
+     live in the edit-mode scope below, which owns its own escapeHTML. */
+  var categorySuggestionLabels = function () {
+    var labels = CATEGORIES.map(function (option) {
+      return option.label;
+    });
+    readCreatedCategories().forEach(function (key) {
+      labels.push(key);
+    });
+    return labels;
+  };
 
   /* ------------------------------------------------------------------ *
    * Edit-mode session flag
@@ -1078,6 +1143,9 @@
     storageKey: MASTER_STORAGE_KEY,
     editModeKey: EDIT_MODE_STORAGE_KEY,
     categories: CATEGORIES,
+    resolveCategoryValue: resolveCategoryValue,
+    createdCategories: readCreatedCategories,
+    categorySuggestionLabels: categorySuggestionLabels,
     maxImageEdge: MAX_IMAGE_EDGE,
     imageQuality: IMAGE_QUALITY,
     maxBytes: MAX_UPLOAD_BYTES,
@@ -1453,6 +1521,20 @@ var mounted = false;
 
   var modal = null;
 
+  /* Datalist suggestions for the category combo (fixed + created customs),
+     HTML-escaped with this scope's own escapeHTML. */
+  var categoryDatalistHTML = function () {
+    return catalogue.categorySuggestionLabels().map(function (label) {
+      return '<option value="' + escapeHTML(label) + '"></option>';
+    }).join("");
+  };
+
+  var refreshCategoryDatalist = function () {
+    if (!modal) return;
+    var list = modal.querySelector("#lurei-category-list");
+    if (list) list.innerHTML = categoryDatalistHTML();
+  };
+
   var buildModal = function () {
     var host = document.createElement("div");
     host.className = "lurei-modal";
@@ -1498,13 +1580,10 @@ var mounted = false;
               "</label>" +
               '<label class="lurei-field">' +
                 '<span class="lurei-field__label">Category</span>' +
-                '<select class="lurei-field__input" data-lurei-type>' +
-                  CATEGORIES.map(function (option) {
-                    return '<option value="' + option.value + '">' + option.label + "</option>";
-                  }).join("") +
-                  '<option value="' + NEW_CATEGORY + '">+ Create New Category</option>' +
-                "</select>" +
-                '<input type="text" id="newCategoryInput" class="form-input lurei-field__input" data-lurei-new-category maxlength="40" placeholder="Type new category name (e.g. Dresses)" style="display:none; margin-top:8px;" />' +
+                '<input class="lurei-field__input" type="text" data-lurei-type-input list="lurei-category-list" maxlength="40" placeholder="Select or type a category (e.g. Dresses)" autocomplete="off" />' +
+                '<datalist id="lurei-category-list">' +
+                  categoryDatalistHTML() +
+                "</datalist>" +
               "</label>" +
               '<label class="lurei-field">' +
                 '<span class="lurei-field__label">Description <span class="lurei-field__optional">optional</span></span>' +
@@ -1524,20 +1603,6 @@ var mounted = false;
     return host;
   };
 
-  /* Shows #newCategoryInput only while "+ Create New Category" is selected;
-     otherwise it stays hidden (and is cleared). New code only — no existing
-     modal control is altered. */
-  var syncNewCategoryVisibility = function () {
-    if (!modal) return;
-    var select = modal.querySelector("[data-lurei-type]");
-    var customInput = modal.querySelector("[data-lurei-new-category]");
-    if (!select || !customInput) return;
-    var isNew = select.value === NEW_CATEGORY;
-    customInput.style.display = isNew ? "" : "none";
-    customInput.required = isNew;
-    if (!isNew) customInput.value = "";
-  };
-
   var openModal = function () {
     if (!modal) return;
     lastFocus = document.activeElement;
@@ -1545,7 +1610,7 @@ var mounted = false;
     document.body.classList.add("lurei-modal-open");
     modal.querySelector("[data-lurei-error]").hidden = true;
     pendingImage = "";
-    syncNewCategoryVisibility();
+    refreshCategoryDatalist();
     renderPreview();
     var first = modal.querySelector("[data-lurei-name]");
     if (first) first.focus();
@@ -1785,23 +1850,20 @@ var onGridClick = function (event) {
 
     var title = modal.querySelector("[data-lurei-name]").value.trim();
     var price = Number(modal.querySelector("[data-lurei-price]").value);
-    var typeRaw = modal.querySelector("[data-lurei-type]").value;
+    /* Combo text resolved via the catalogue API to a stored value: fixed
+       slug for known names, UPPERCASE key for new customs (registered on
+       first use). */
+    var resolved = catalogue.resolveCategoryValue(modal.querySelector("[data-lurei-type-input]").value);
+    var type = resolved.value;
     var description = modal.querySelector("[data-lurei-desc]").value.trim();
     /* An empty box means "nobody counted", which is kept as null rather than 0
        so a new piece is never born sold out. */
     var stockRaw = modal.querySelector("[data-lurei-stock]").value.trim();
 
-    /* When "+ Create New Category" is selected, the typed text becomes the
-       product's category string; otherwise the chosen fixed option is used. */
-    var type = typeRaw;
-    if (typeRaw === NEW_CATEGORY) {
-      var customName = modal.querySelector("[data-lurei-new-category]").value.trim();
-      if (!customName) {
-        errorHost.textContent = "Please type the new category name (e.g. Dresses).";
-        errorHost.hidden = false;
-        return;
-      }
-      type = customName;
+    if (!type) {
+      errorHost.textContent = "Please choose or type a category (e.g. Dresses).";
+      errorHost.hidden = false;
+      return;
     }
 
     try {
@@ -1814,6 +1876,16 @@ var onGridClick = function (event) {
         image: pendingImage,
         stock: stockRaw === "" ? null : Number(stockRaw),
       });
+
+      /* New customs append their nav tab only after the product saved: a
+         window event bridges the edit-mode scope to the storefront scope. */
+      if (resolved.isNew) {
+        try {
+          window.dispatchEvent(
+            new CustomEvent("lurei:category-created", { detail: { key: resolved.value } })
+          );
+        } catch (tabError) {}
+      }
 
       closeModal();
       announce('"' + created.title + '" is now live on the storefront.');
@@ -1829,13 +1901,6 @@ var onGridClick = function (event) {
     });
 
     modal.addEventListener("submit", onModalSubmit);
-
-    /* Toggles the free-text input with the Category dropdown. Added listener
-       only — existing modal wiring is untouched. */
-    var typeSelect = modal.querySelector("[data-lurei-type]");
-    if (typeSelect) {
-      typeSelect.addEventListener("change", syncNewCategoryVisibility);
-    }
 
     modal.addEventListener("keydown", function (event) {
       if (event.key === "Escape") closeModal();
@@ -3033,61 +3098,76 @@ const stockLabelFor = (count) => `STOCK ${count} LEFT`;
     });
   };
 
-  /* Custom-category tabs (purely additive): for every product type in the
-     catalogue that is not a fixed filter, appends one button to the top bar
-     right after WATCHES. Static buttons, FILTERS entries and all existing
-     listeners are never rebuilt, rebound or removed — appended buttons carry
-     data-custom="true" and are reconciled on each catalogue seed. Matching
-     is case-insensitive on trimmed text. New code only. */
-  const STATIC_FILTER_KEYS = ["all", "under-150", "under-100", "under-50", "under-30", "earrings", "necklaces", "rings", "bracelets", "watches"];
+  /* Custom-category tabs from explicit creations only (registry via the
+     catalogue API — product data is never scanned, so type variants can never
+     spawn duplicates). Appended beside WATCHES with luxury .filter-tab
+     styling; static tabs, FILTERS entries and existing listeners are never
+     rebuilt or rebound. A custom tab is visible only while its category holds
+     at least one available product; otherwise it hides automatically. */
 
-  const normCatKey = (value) => String(value || "").trim().toLowerCase();
+  /* Sellable test: the explicit out-of-stock flag always wins; an uncounted
+     shelf (null) and the boutique's 0-means-ample convention read as
+     available, otherwise stock > 0 is required. */
+  const isProductAvailable = (p) => {
+    if (!p) return false;
+    if (p.outOfStock === true) return false;
+    if (p.stock === null || p.stock === undefined) return true;
+    const n = Number(p.stock);
+    if (!Number.isFinite(n)) return true;
+    return n !== 0 ? n > 0 : true;
+  };
 
-  const syncCustomCategoryTabs = () => {
+  /* Fresh catalogue read (never the possibly-stale render list), so stock
+     toggles are reflected even when this runs ahead of the next seed. */
+  const readLiveProducts = () => {
+    try {
+      const api = window.LureiCatalogue;
+      if (api && api.store && typeof api.store.read === "function") return api.store.read();
+    } catch {}
+    return [];
+  };
+
+  const customCategoryHasStock = (key) => {
+    const want = String(key || "").trim().toUpperCase();
+    if (!want) return false;
+    return readLiveProducts().some(
+      (p) => String((p && p.type) || "").trim().toUpperCase() === want && isProductAvailable(p)
+    );
+  };
+
+  /* Shows/hides every custom tab from live availability. Falls back to ALL
+     COLLECTIONS when the active custom tab runs dry. Display toggling only —
+     buttons (and their listeners) are preserved, so restocking re-shows the
+     same node. */
+  const syncCustomTabsVisibility = () => {
     const wrap = document.querySelector(".filter-tabs");
     if (!wrap) return;
-    /* One delegated listener (registered once): when a static tab is clicked,
-       clear any custom tab's active state. Baseline applyFilter() only knows
-       its static NodeList, so this keeps exactly one tab active. Added
-       listener only — baseline handlers are untouched. */
-    if (!wrap.dataset.lureiCustomTabsBound) {
-      wrap.dataset.lureiCustomTabsBound = "true";
-      wrap.addEventListener("click", (event) => {
-        const tab = event.target.closest("[data-filter]");
-        if (!tab || tab.dataset.custom === "true") return;
-        wrap.querySelectorAll('[data-filter][data-custom="true"].is-active').forEach((b) => {
-          b.classList.remove("is-active");
-          b.setAttribute("aria-selected", "false");
-        });
-      });
-    }
-    const seen = new Set();
-    const customs = [];
-    catalogue.forEach((p) => {
-      const raw = String((p && p.type) || "").trim();
-      const key = raw.toLowerCase();
-      if (!key || STATIC_FILTER_KEYS.indexOf(key) !== -1 || seen.has(key)) return;
-      seen.add(key);
-      customs.push({ key, label: raw });
-    });
-    /* Drop appended tabs whose category no longer exists, and prune their
-       FILTERS entries so a removed category can never filter. */
-    wrap.querySelectorAll('[data-filter][data-custom="true"]').forEach((btn) => btn.remove());
-    Object.keys(FILTERS).forEach((key) => {
-      if (STATIC_FILTER_KEYS.indexOf(key) === -1 && !seen.has(key)) delete FILTERS[key];
-    });
-    if (activeFilter !== "all" && STATIC_FILTER_KEYS.indexOf(activeFilter) === -1 && !seen.has(activeFilter)) {
-      activeFilter = "all";
-      applyFilter("all");
-    }
-    customs.forEach(({ key, label }) => {
-      if (!FILTERS[key]) {
-        const want = key;
-        FILTERS[key] = () => catalogue.filter((p) => normCatKey(p && p.type) === want);
+    wrap.querySelectorAll('[data-filter][data-custom="true"]').forEach((btn) => {
+      const visible = customCategoryHasStock(btn.dataset.filter);
+      btn.style.display = visible ? "" : "none";
+      if (!visible && activeFilter === btn.dataset.filter) {
+        applyFilter("all");
       }
+    });
+  };
+
+  const ensureCustomFilter = (key) => {
+    if (!FILTERS[key]) {
+      const want = key;
+      FILTERS[key] = () => catalogue.filter((p) => String((p && p.type) || "").trim().toUpperCase() === want);
+    }
+  };
+
+  const appendCustomTab = (key) => {
+    const wrap = document.querySelector(".filter-tabs");
+    if (!wrap || !key) return;
+    let exists = false;
+    wrap.querySelectorAll("[data-filter]").forEach((tab) => {
+      if (tab.dataset.filter === key) exists = true;
+    });
+    ensureCustomFilter(key);
+    if (!exists) {
       const btn = document.createElement("button");
-      /* filter-tab carries the existing typography/hover/active styling so no
-         CSS changes are needed; cat-btn marks it as a custom-category tab. */
       btn.className = "filter-tab cat-btn";
       btn.type = "button";
       btn.setAttribute("role", "tab");
@@ -3095,7 +3175,9 @@ const stockLabelFor = (count) => `STOCK ${count} LEFT`;
       if (activeFilter === key) btn.classList.add("is-active");
       btn.dataset.filter = key;
       btn.dataset.custom = "true";
-      btn.textContent = label;
+      /* Name text only — no manual delete affordance; visibility is
+         stock-driven (see syncCustomTabsVisibility). */
+      btn.textContent = key;
       /* Listener lives only on the appended button; no existing tab or
          handler is touched. applyFilter() itself is unmodified. */
       btn.addEventListener("click", () => {
@@ -3108,8 +3190,76 @@ const stockLabelFor = (count) => `STOCK ${count} LEFT`;
         btn.setAttribute("aria-selected", "true");
       });
       wrap.appendChild(btn);
-    });
+    }
+    syncCustomTabsVisibility();
   };
+
+  const renderCreatedTabs = () => {
+    const wrap = document.querySelector(".filter-tabs");
+    if (!wrap) return;
+    if (!wrap.dataset.lureiCustomTabsBound) {
+      wrap.dataset.lureiCustomTabsBound = "true";
+      wrap.addEventListener("click", (event) => {
+        const tab = event.target.closest("[data-filter]");
+        if (!tab || tab.dataset.custom === "true") return;
+        wrap.querySelectorAll('[data-filter][data-custom="true"].is-active').forEach((b) => {
+          b.classList.remove("is-active");
+          b.setAttribute("aria-selected", "false");
+        });
+      });
+    }
+    try {
+      const api = window.LureiCatalogue;
+      const created =
+        api && typeof api.createdCategories === "function" ? api.createdCategories() : [];
+      created.forEach((key) => appendCustomTab(key));
+    } catch {}
+    syncCustomTabsVisibility();
+  };
+
+  window.addEventListener("lurei:category-created", (event) => {
+    const key = event && event.detail && event.detail.key;
+    if (key) appendCustomTab(key);
+  });
+
+  /* Stock-change triggers (additive only — baseline store/catalogue code is
+     untouched): every catalogue commit (publish, stock toggle/count update,
+     out-of-stock switch, delete) re-syncs tab visibility from live data.
+     Cross-tab storage writes for products or the created registry re-render
+     first, then re-sync. Neither path writes anything back, so no loops. */
+  if (!window.__lureiCustomStockSync) {
+    window.__lureiCustomStockSync = true;
+    try {
+      const catalogueApi = window.LureiCatalogue;
+      if (
+        catalogueApi &&
+        catalogueApi.store &&
+        typeof catalogueApi.store.subscribe === "function"
+      ) {
+        catalogueApi.store.subscribe(() => syncCustomTabsVisibility());
+      }
+    } catch {}
+    window.addEventListener("storage", (event) => {
+      if (!event) return;
+      /* MASTER_STORAGE_KEY ("lurei_products") or the created registry; a null
+         key means storage was cleared wholesale. */
+      if (
+        event.key !== null &&
+        event.key !== "lurei_products" &&
+        event.key !== "lurei_created_categories"
+      ) {
+        return;
+      }
+      renderCreatedTabs();
+      syncCustomTabsVisibility();
+    });
+  }
+
+  if (document.readyState === "loading") {
+    document.addEventListener("DOMContentLoaded", renderCreatedTabs);
+  } else {
+    renderCreatedTabs();
+  }
 
   const bindCollectionTools = () => {
     const searchInput = $("#product-search");
@@ -3149,7 +3299,6 @@ const stockLabelFor = (count) => `STOCK ${count} LEFT`;
     topVisible = Math.min(CONFIG.PAGE_SIZE, catalogue.length);
     renderTopSellers();
     refreshCollections();
-    syncCustomCategoryTabs();
     renderNewIn();
     renderJustIn();
     updateLoadMore();
