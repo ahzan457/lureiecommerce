@@ -119,6 +119,17 @@ function doPost(e) {
         }
         case "updateOrderStatus":
           return out_({ ok: true, order: updateOrderStatus_(payload.orderId, payload.status) });
+        case "updateOrderPaymentStatus":
+          /* Payment status is independent of fulfilment status, so it gets its
+             own column/action. Accepts paymentStatus (canonical) or status so
+             either spelling the client sends persists. */
+          return out_({
+            ok: true,
+            order: updateOrderPaymentStatus_(
+              payload.orderId,
+              payload.paymentStatus !== undefined ? payload.paymentStatus : payload.status
+            ),
+          });
         case "updateDeliveryDate":
           return out_({
             ok: true,
@@ -437,6 +448,33 @@ function updateOrderStatus_(orderId, status) {
       throw new Error("No Status column on the Orders sheet.");
     }
     return { orderId: orderId, status: next };
+  });
+}
+
+/* Payment-status writer for the dashboard's interactive PAYMENT pill.
+   Deliberately separate from updateOrderStatus_ (the fulfilment Status column)
+   so marking a payment Completed never changes delivery state, and vice versa.
+   Creates the "Payment Status" header when an older sheet lacks it, so the
+   write never fails with "No column" on legacy spreadsheets. */
+function updateOrderPaymentStatus_(orderId, status) {
+  return withLock_(function () {
+    var key = String(orderId === undefined || orderId === null ? "" : orderId).trim();
+    if (!key) throw new Error("updateOrderPaymentStatus needs an orderId.");
+    /* Stored Title Case, matching the Status column convention and the
+       dashboard's badge text. Anything not "completed" is Pending. */
+    var raw = String(status === undefined || status === null ? "" : status).trim().toLowerCase();
+    var next = raw === "completed" || raw === "paid" || raw === "complete" ? "Completed" : "Pending";
+    var sheet = ordersSheet_();
+    var row = findOrderRow_(sheet, key);
+    if (!row) throw new Error("No order with id " + key);
+    var col = columnByNames_(sheet, ["Payment Status", "payment_status", "PaymentState"]);
+    if (col === -1) {
+      var headerCol = sheet.getLastColumn() + 1;
+      sheet.getRange(1, headerCol).setValue("Payment Status");
+      col = headerCol;
+    }
+    sheet.getRange(row, col).setValue(next);
+    return { orderId: key, paymentStatus: next };
   });
 }
 

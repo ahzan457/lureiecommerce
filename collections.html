@@ -245,32 +245,32 @@
           <div id="g_id_signin_wrap"></div>
           <p class="auth-panel__divider"><span>or continue with email</span></p>
         </div>
-        <form class="auth-form" id="auth-signin-form" novalidate>
+        <form class="auth-form" id="auth-signin-form" autocomplete="off" novalidate>
           <div class="field">
             <label class="field__label" for="auth-signin-email">Email Address</label>
-            <input class="field__input auth-input" id="auth-signin-email" type="email" placeholder="you@email.com" autocomplete="email" required />
+            <input class="field__input auth-input" id="auth-signin-email" type="email" placeholder="you@email.com" autocomplete="off" value="" required />
           </div>
           <div class="field">
             <label class="field__label" for="auth-signin-password">Password</label>
-            <input class="field__input auth-input" id="auth-signin-password" type="password" placeholder="Enter your password" autocomplete="current-password" required />
+            <input class="field__input auth-input" id="auth-signin-password" type="password" placeholder="Enter your password" autocomplete="new-password" value="" required />
           </div>
           <button class="btn btn--auth" type="submit">Login</button>
         </form>
       </section>
 
       <section class="auth-panel" id="auth-panel-create" role="tabpanel" hidden>
-        <form class="auth-form" id="auth-create-form" novalidate>
+        <form class="auth-form" id="auth-create-form" autocomplete="off" novalidate>
           <div class="field">
             <label class="field__label" for="auth-create-name">Full Name</label>
-            <input class="field__input auth-input" id="auth-create-name" type="text" placeholder="Your full name" autocomplete="name" required />
+            <input class="field__input auth-input" id="auth-create-name" type="text" placeholder="Your full name" autocomplete="off" value="" required />
           </div>
           <div class="field">
             <label class="field__label" for="auth-create-email">Email Address</label>
-            <input class="field__input auth-input" id="auth-create-email" type="email" placeholder="you@email.com" autocomplete="email" required />
+            <input class="field__input auth-input" id="auth-create-email" type="email" placeholder="you@email.com" autocomplete="off" value="" required />
           </div>
           <div class="field">
             <label class="field__label" for="auth-create-password">Password</label>
-            <input class="field__input auth-input" id="auth-create-password" type="password" placeholder="At least 6 characters" autocomplete="new-password" minlength="6" required />
+            <input class="field__input auth-input" id="auth-create-password" type="password" placeholder="At least 6 characters" autocomplete="new-password" value="" minlength="6" required />
           </div>
           <button class="btn btn--auth" type="submit">Create Account</button>
         </form>

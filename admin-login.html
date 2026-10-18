@@ -438,6 +438,11 @@
           .then(() => {
             try {
               sessionStorage.setItem(ADMIN_SESSION_KEY, "true");
+              /* Persistent admin-preview flag, matching the Admin Access tab in
+                 index.html: it is the only flag a freshly opened "View Store"
+                 tab can read, so the storefront renders the "A" account icon
+                 with its BACK TO DASHBOARD route instead of a shopper menu. */
+              localStorage.setItem("isAdminLoggedIn", "true");
             } catch {
               /* Private-mode storage failures still allow this tab to continue. */
             }

@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <meta name="robots" content="noindex, nofollow" />
-  <title>Admin Dashboard — LUREÍ Dubai</title>
+  <title>Admin Dashboard â€” LUREÃ Dubai</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@400;500;600;700&family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap" rel="stylesheet" />
@@ -1143,6 +1143,59 @@
       border: 1px solid var(--border);
     }
 
+    /* Interactive PAYMENT pill. Same pill silhouette as .pay-badge, but a real
+       button so the owner can toggle Completed / Pending in place. Completed
+       gets the soft-green / dark-green treatment; Pending keeps the default
+       subtle chip. */
+    .pay-status {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.35rem;
+      padding: 0.3rem 0.7rem;
+      font-family: var(--sans);
+      font-size: 0.53rem;
+      font-weight: 700;
+      letter-spacing: 0.13em;
+      text-transform: uppercase;
+      border-radius: 999px;
+      white-space: nowrap;
+      cursor: pointer;
+      transition: background var(--ease), color var(--ease), border-color var(--ease), transform var(--ease), box-shadow var(--ease);
+    }
+
+    /* Default / Pending: subtle neutral pill that reads as "still to do". */
+    .pay-status.is-pending {
+      color: var(--label);
+      background: var(--bg-alt);
+      border: 1px solid var(--border);
+    }
+
+    .pay-status.is-pending:hover {
+      color: var(--gold-deep);
+      background: var(--cream);
+      border-color: var(--gold-warm);
+      transform: translateY(-1px);
+      box-shadow: var(--shadow-gold);
+    }
+
+    /* Completed: soft green background, dark green text. */
+    .pay-status.is-completed {
+      color: #1F5238;
+      background: rgba(78, 158, 126, 0.18);
+      border: 1px solid rgba(78, 158, 126, 0.55);
+    }
+
+    .pay-status.is-completed:hover {
+      color: #FFFFFF;
+      background: #2F6350;
+      border-color: #2F6350;
+      transform: translateY(-1px);
+    }
+
+    .pay-status:focus-visible { outline: 2px solid var(--gold-deep); outline-offset: 2px; }
+    .pay-status:disabled { opacity: 0.55; cursor: progress; }
+    .pay-status__check { font-size: 0.62rem; line-height: 1; }
+
     /* ---------------- Req. delivery date (admin editable) ---------------- */
     .target-date {
       position: relative;
@@ -1487,8 +1540,8 @@
         </div>
         <div class="topbar__right">
           <span class="live-chip"><span class="live-dot"></span> Live store data</span>
-          <a class="editor-launch" href="collections.html?editMode=true" id="editor-launch"><span class="editor-launch__bolt" aria-hidden="true">⚡</span> Edit Live Storefront</a>
-          <a class="store-link" href="index.html" target="_blank" rel="noopener">View Store</a>
+          <a class="editor-launch" href="collections.html?editMode=true" id="editor-launch">Edit Live Storefront</a>
+          <a class="store-link" href="collections.html" id="store-link" target="_blank" rel="noopener">View Store</a>
         </div>
       </header>
 
@@ -1861,11 +1914,11 @@
       /* ---------------- Access guard ----------------
          Two modes:
 
-         Backend configured — the real gate. Every admin action in Code.gs
+         Backend configured â€” the real gate. Every admin action in Code.gs
          re-checks ADMIN_API_KEY server-side, so clearing sessionStorage
          only hides the page; it cannot read or write a Sheet.
 
-         Backend not configured — dev mode. The sessionStorage flag is then
+         Backend not configured â€” dev mode. The sessionStorage flag is then
          the only check available, which is why the login page refuses to
          consult its fallback credential while the backend is live. */
       const backend = window.LureiBackend || null;
@@ -1875,16 +1928,16 @@
       /* Admin session detection. Two flags are honoured, and either one is
          enough:
 
-         1. sessionStorage "adminLoggedIn" — set on the tab where the admin
+         1. sessionStorage "adminLoggedIn" â€” set on the tab where the admin
             signed in. Per-tab, so it dies with that tab.
-         2. localStorage "isAdminLoggedIn" — the storefront preview state set
+         2. localStorage "isAdminLoggedIn" â€” the storefront preview state set
             by the Admin Access tab in index.html. This is the one that makes
             BACK TO DASHBOARD work: that button is on index.html, and VIEW
             STORE opens the storefront in a NEW tab, so sessionStorage is
             empty by the time a tab navigates here. Only the localStorage flag
             survives that hand-off.
 
-         Both are client-side and therefore not a security control — this gate
+         Both are client-side and therefore not a security control â€” this gate
          only decides whether to render the dashboard shell. Every real read
          and write still re-checks ADMIN_API_KEY server-side (see Code.gs), so
          a hand-edited flag can reveal the layout but cannot touch a Sheet. */
@@ -1914,6 +1967,14 @@
         return;
       }
 
+      /* The guard above has admitted an admin, so raise the persistent preview
+         flag too. Reaching the dashboard via admin-login.html only sets the
+         per-tab sessionStorage key; without this mirror the "View Store" tab
+         opened below would render as a plain shopper with no "A" account icon
+         and no way back to the dashboard. localStorage is the one flag every
+         tab (and the storefront) can read. */
+      try { localStorage.setItem(ADMIN_PREVIEW_KEY, "true"); } catch {}
+
       /* ---------------- Storage layer (real orders only) ---------------- */
       const ORDERS_STORAGE_KEY = "lurei_orders";
 
@@ -1925,9 +1986,38 @@
       const catalogue = window.LureiCatalogue || null;
       const editorLaunch = document.getElementById("editor-launch");
 
-      if (catalogue && editorLaunch) {
-        editorLaunch.addEventListener("click", () => {
-          catalogue.enterEditMode();
+      /* The dashboard is never the editor itself, so any edit-session flag that
+         survived an earlier storefront visit is dropped here. That keeps a
+         "View Store" tab (even one opened by middle-click, which bypasses the
+         click handlers below) a clean customer view with no editor chrome. */
+      if (catalogue && typeof catalogue.exitEditMode === "function") {
+        try { catalogue.exitEditMode(); } catch (error) {}
+      }
+
+      /* "Edit Live Storefront" must land on a freshly fetched storefront, never
+         a cached or bfcached one: the click performs a real navigation to
+         ?editMode=true with a cache-buster instead of trusting the browser to
+         revalidate the same HTML. The stored flag is set first as a fallback
+         for private-mode storage, but the query string is what loads the
+         editor. */
+      if (editorLaunch) {
+        editorLaunch.addEventListener("click", (event) => {
+          event.preventDefault();
+          if (catalogue && typeof catalogue.enterEditMode === "function") {
+            try { catalogue.enterEditMode(); } catch (error) {}
+          }
+          window.location.href = "collections.html?editMode=true&_=" + Date.now();
+        });
+      }
+
+      /* "View Store" is a clean customer view: drop the edit flag and open the
+         storefront URL with no editMode parameter at all. */
+      const storeLink = document.getElementById("store-link");
+      if (storeLink) {
+        storeLink.addEventListener("click", () => {
+          if (catalogue && typeof catalogue.exitEditMode === "function") {
+            try { catalogue.exitEditMode(); } catch (error) {}
+          }
         });
       }
 
@@ -1940,6 +2030,23 @@
         if (label.includes("cash") || label.includes("cod")) return "cod";
         if (label.includes("online") || label.includes("card") || label.includes("paid")) return "card";
         return "";
+      };
+
+      /* Payment status is tracked independently of fulfilment status. An
+         explicit stored value always wins; otherwise the older "card = paid"
+         reading is preserved (an online payment is captured at checkout) while
+         cash-on-delivery stays Pending until the owner confirms it. */
+      const normalizePaymentStatus = (order) => {
+        const raw = String(
+          order.paymentStatus != null ? order.paymentStatus : order.payment_status || ""
+        ).trim().toLowerCase();
+        if (raw === "completed" || raw === "complete" || raw === "paid" || raw === "yes") {
+          return "completed";
+        }
+        if (raw === "pending" || raw === "incomplete" || raw === "unpaid" || raw === "no") {
+          return "pending";
+        }
+        return normalizePaymentMethod(order) === "card" ? "completed" : "pending";
       };
 
       /* Amounts sometimes arrive as display strings ("AED 30.00") rather than
@@ -2045,12 +2152,13 @@
 
         return {
           orderId,
-          customerName: String(order.customerName || "—"),
-          phone: String(order.phone || contact || "—"),
+          customerName: String(order.customerName || "â€”"),
+          phone: String(order.phone || contact || "â€”"),
           email: String(order.email || ""),
-          address: String(order.address || "—"),
+          address: String(order.address || "â€”"),
           payment: String(order.payment || "Payment not recorded"),
           paymentMethod: normalizePaymentMethod(order),
+          paymentStatus: normalizePaymentStatus(order),
           requestedDeliveryDate: String(
             order.requestedDeliveryDate || order.requested_delivery_date || ""
           ),
@@ -2098,6 +2206,7 @@
           items: rowValue(row, "Items Purchased", "Items", "items"),
           totalAED: rowValue(row, "Total Amount", "Total", "total", "totalAmount", "total_aed"),
           currencyAtOrder: rowValue(row, "Currency", "currency_at_order"),
+          paymentStatus: rowValue(row, "Payment Status", "payment_status"),
           status: rowValue(row, "Status", "status"),
           createdAt: rowValue(row, "Date", "date", "createdAt", "created_at"),
           /* The Sheets row id, so status/delete calls can target the exact
@@ -2132,9 +2241,24 @@
         localStorage.setItem(ORDERS_STORAGE_KEY, JSON.stringify(orders));
       };
 
+      /* Local-first cache. Unlike writeOrders (which is a no-op in backend
+         mode), this ALWAYS mirrors the in-memory orders array to localStorage,
+         so a delivery-date or payment-status edit sticks locally the moment it
+         is made and survives a reload even when the Sheet write never lands.
+         Returns true when the write succeeded. */
+      const persistOrdersLocally = (orders) => {
+        try {
+          localStorage.setItem(ORDERS_STORAGE_KEY, JSON.stringify(orders));
+          return true;
+        } catch (error) {
+          console.warn("[Orders] could not cache orders locally:", error && error.message);
+          return false;
+        }
+      };
+
       /* ---------------- Zero-glitch sync helpers ----------------
          Production hardening: Apps Script lock waits, quota HTML pages and
-         429/5xx responses are transient — retry once after 1s instead of
+         429/5xx responses are transient â€” retry once after 1s instead of
          throwing UI errors. Writes are idempotent by Order ID, so the retry
          can never duplicate or misplace a row. */
       const isTransientSyncError = (error) => {
@@ -2152,7 +2276,7 @@
       const sleepSync = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
       /* Runs fn(); on a transient failure (Apps Script lock, timeout, quota
-         HTML page, 429/5xx) waits 1s and runs it once more — up to 2 attempts
+         HTML page, 429/5xx) waits 1s and runs it once more â€” up to 2 attempts
          total. Non-transient refusals (unauthorized) reject immediately so
          rollbacks still fire for real errors. A "No order with id" reply
          never reaches here as an error: the shared backend already maps it
@@ -2301,7 +2425,7 @@
 
       const formatDate = (isoString) => {
         const date = parseOrderDate(isoString);
-        if (!date) return "—";
+        if (!date) return "â€”";
         return date.toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" });
       };
 
@@ -2340,10 +2464,10 @@
         const label = formatDisplayDate(date);
         const daysAway = daysUntil(date);
 
-        if (daysAway < 0) return label + " · Overdue";
-        if (daysAway === 0) return label + " · Today";
-        if (daysAway === 1) return label + " · Tomorrow";
-        if (daysAway <= 3) return label + " · Soon";
+        if (daysAway < 0) return label + " Â· Overdue";
+        if (daysAway === 0) return label + " Â· Today";
+        if (daysAway === 1) return label + " Â· Tomorrow";
+        if (daysAway <= 3) return label + " Â· Soon";
         return label;
       };
 
@@ -2358,7 +2482,7 @@
 
       const itemsSummary = (order) => {
         const items = Array.isArray(order.items) ? order.items : [];
-        if (!items.length) return [{ title: "—", quantity: 1 }];
+        if (!items.length) return [{ title: "â€”", quantity: 1 }];
         return items.map((item) => ({
           title: item && item.title ? String(item.title) : "Untitled item",
           quantity: Number(item && item.quantity) || 1,
@@ -2374,17 +2498,24 @@
         return status === "delivered" || status === "completed";
       };
 
-      /* PAID for card, COD for cash on delivery. Falls back to the label so
-         orders placed before the column existed still read correctly. */
-      const paymentBadgeHTML = (order) => {
-        if (order.paymentMethod === "card") {
-          return '<span class="pay-badge pay-badge--paid">Paid</span>';
-        }
-        if (order.paymentMethod === "cod") {
-          return '<span class="pay-badge pay-badge--cod">COD</span>';
-        }
-        return '<span class="pay-badge pay-badge--unknown">' +
-          escapeHTML(order.payment || "—") + "</span>";
+      /* Interactive PAYMENT pill. A real button (not a static badge) so the
+         owner can toggle Completed / Pending in place; the shared click
+         handler below repaints and persists it. Both states keep the pill
+         silhouette, so the column never changes height between rows. */
+      const paymentStatusHTML = (order) => {
+        const completed = normalizePaymentStatus(order) === "completed";
+        const label = completed ? "PAYMENT COMPLETED" : "PAYMENT NOT RECORDED";
+        const shortLabel = completed ? "Completed" : "Pending";
+        return (
+          '<button class="pay-status ' + (completed ? "is-completed" : "is-pending") + '" type="button" ' +
+            'data-pay-id="' + escapeHTML(order.orderId) + '" ' +
+            'aria-pressed="' + String(completed) + '" ' +
+            'aria-label="Payment status for ' + escapeHTML(order.orderId) + ': ' + shortLabel +
+            '. Click to mark as ' + (completed ? "Pending" : "Completed") + '.">' +
+            (completed ? '<span class="pay-status__check" aria-hidden="true">&#10003;</span>' : "") +
+            label +
+          "</button>"
+        );
       };
 
       /* ---------------- Editable delivery date ----------------
@@ -2434,16 +2565,16 @@
 
       /* The sheet writes a literal "N/A" where it has nothing, so cell text
          treats that (and blanks) as missing and falls back to the table's
-         existing "—" convention instead of printing raw "N/A". */
+         existing "â€”" convention instead of printing raw "N/A". */
       const cellText = (value, fallback) => {
         const text = String(value == null ? "" : value).trim();
-        if (!text || text.toLowerCase() === "n/a") return fallback === undefined ? "—" : fallback;
+        if (!text || text.toLowerCase() === "n/a") return fallback === undefined ? "â€”" : fallback;
         return text;
       };
       const visibleItems = (items) => {
         const list = Array.isArray(items) ? items : [];
         const shown = list.filter((item) => cellText(item && item.title, "") !== "");
-        return shown.length ? shown : [{ title: "—", quantity: 1 }];
+        return shown.length ? shown : [{ title: "â€”", quantity: 1 }];
       };
 
       /* ---------------- DOM refs ---------------- */
@@ -2524,8 +2655,8 @@
         toastTimer = setTimeout(() => toastEl.classList.remove("is-visible"), 3200);
       };
 
-      /* Dismisses any visible toast — e.g. a previous "could not reach the
-         order database" error — the moment fresh data renders, so a stale
+      /* Dismisses any visible toast â€” e.g. a previous "could not reach the
+         order database" error â€” the moment fresh data renders, so a stale
          error is never mistaken for the current state. */
       const hideToast = () => {
         clearTimeout(toastTimer);
@@ -2586,7 +2717,7 @@
          Resolves true when both halves are done, and false when either half was
          refused - nothing rejects, because both callers are UI buttons that have
          no useful way to handle a thrown error and an unhandled rejection would
-         leave the button stuck on "Saving…". When the removal fails the log entry
+         leave the button stuck on "Savingâ€¦". When the removal fails the log entry
          is rolled back, so revenue never claims a sale that is still sitting in
          the orders table. */
       const addOrderToReport = (orderId) => {
@@ -2653,7 +2784,7 @@
             if (backendReady) backendOrders = restoreAt(backendOrders, target, index);
             removeArchivedOrder(orderId);
             renderAll();
-            showToast("Could not remove order " + orderId + ". Nothing was filed — please retry.");
+            showToast("Could not remove order " + orderId + ". Nothing was filed â€” please retry.");
             return false;
           });
       };
@@ -2665,7 +2796,7 @@
          Multi-tab purge: the order leaves the in-memory list (backendOrders,
          the single allOrders source renderAll reads) and renderAll() repaints
          Overview recent orders, the Orders table AND the Monthly Report in one
-         pass — whichever tab the delete came from. The Sheet DELETE follows
+         pass â€” whichever tab the delete came from. The Sheet DELETE follows
          with one automatic 1s retry on lock/transient errors, then a silent
          re-fetch reconciles with the Sheet instead of trusting the optimistic
          removal. A real refusal rolls the row back into its exact slot.
@@ -2691,7 +2822,7 @@
 
         /* Instant optimistic deletion: the row leaves the in-memory allOrders
            source (backendOrders) and renderAll() repaints Orders, Overview
-           and Monthly Report DOM in the same tick — before the network. */
+           and Monthly Report DOM in the same tick â€” before the network. */
         if (backendReady) {
           backendOrders = (backendOrders || []).filter((order) => String(order.orderId).trim() !== orderId);
         } else {
@@ -2894,7 +3025,7 @@
               const email = String(order.email || "").trim().toLowerCase();
               if (email && email !== "n/a" && email.indexOf("@") !== -1) return "email:" + email;
               const name = String(order.customerName || "").trim().toLowerCase();
-              if (name && name !== "—" && name !== "n/a") return "name:" + name;
+              if (name && name !== "â€”" && name !== "n/a") return "name:" + name;
               return "";
             })
             .filter(Boolean)
@@ -2965,7 +3096,7 @@
               "</ul></td>" +
             '<td class="cell-total">' + formatAED(order.totalAED) + "</td>" +
             "<td>" + deliveryCellHTML(order) + "</td>" +
-            "<td>" + paymentBadgeHTML(order) + "</td>" +
+            "<td>" + paymentStatusHTML(order) + "</td>" +
             '<td><span class="badge' + (isDelivered(order) ? " badge--delivered" : "") + '">' +
               (isDelivered(order) ? "Delivered" : "Pending") + "</span></td>" +
             /* Both actions, on every row: nothing is filed or removed without a
@@ -3001,7 +3132,7 @@
                 "</ul></td>" +
               '<td class="cell-total">' + formatAED(order.totalAED) + "</td>" +
               "<td>" + deliveryCellHTML(order) + "</td>" +
-              "<td>" + paymentBadgeHTML(order) + "</td>" +
+              "<td>" + paymentStatusHTML(order) + "</td>" +
               '<td><button class="status-toggle status-badge ' + (delivered ? "delivered is-delivered" : "pending") + '" type="button" ' +
                 'data-order-id="' + escapeHTML(order.orderId) + '" ' +
                 'aria-pressed="' + String(delivered) + '" ' +
@@ -3073,6 +3204,115 @@
           return response.json().catch(() => ({}));
         });
         return withSyncRetry(singlePost);
+      };
+
+      /* ---------------- Interactive payment status pill ----------------
+         The PAYMENT cell is a real button; a click toggles Completed/Pending,
+         repaints the pill instantly, writes the order record (localStorage or
+         the shared backend) and syncs the Sheet. Payment state is kept apart
+         from the fulfilment Status column, so the two never overwrite each
+         other. */
+      const paintPaymentBadge = (button, completed) => {
+        if (!button) return completed ? "Completed" : "Pending";
+        button.classList.toggle("is-completed", completed);
+        button.classList.toggle("is-pending", !completed);
+        button.setAttribute("aria-pressed", String(completed));
+        button.innerHTML =
+          (completed ? '<span class="pay-status__check" aria-hidden="true">&#10003;</span>' : "") +
+          (completed ? "PAYMENT COMPLETED" : "PAYMENT NOT RECORDED");
+        button.setAttribute(
+          "aria-label",
+          "Payment status for " + (button.dataset.payId || "order") + ": " +
+            (completed ? "Completed" : "Pending") +
+            ". Click to mark as " + (completed ? "Pending" : "Completed") + "."
+        );
+        return completed ? "Completed" : "Pending";
+      };
+
+      /* Backend sync for the payment pill. Same fallback chain as the delivery
+         status writer: the shared client first, then a direct POST so the
+         toggle still persists if only one of the two is available. Transient
+         lock/HTML errors retry once via withSyncRetry. */
+      const syncOrderPaymentStatusToSheets = (orderId, paymentStatus) => {
+        const payload = { action: "updateOrderPaymentStatus", orderId, paymentStatus };
+        if (backendReady && backend) {
+          if (typeof backend.updateOrderPaymentStatus === "function") {
+            return withSyncRetry(() => backend.updateOrderPaymentStatus(orderId, paymentStatus));
+          }
+          if (typeof backend.updateOrderPayment === "function") {
+            return withSyncRetry(() => backend.updateOrderPayment(orderId, paymentStatus));
+          }
+        }
+        const endpoint =
+          (backend && typeof backend.getAppsScriptUrl === "function" && backend.getAppsScriptUrl()) ||
+          (window.LureiOrderStatus && window.LureiOrderStatus.endpoint) ||
+          "";
+        if (!endpoint) return Promise.reject(new Error("APPS_SCRIPT_URL not configured"));
+        const bust = (url) => {
+          try {
+            const u = new URL(url, window.location.href);
+            u.searchParams.set("_t", String(Date.now()));
+            return u.toString();
+          } catch {
+            const sep = url.indexOf("?") === -1 ? "?" : "&";
+            return url + sep + "_t=" + Date.now();
+          }
+        };
+        const singlePost = () => fetch(bust(endpoint), {
+          method: "POST",
+          cache: "no-store",
+          headers: { "Content-Type": "text/plain", Accept: "application/json" },
+          body: JSON.stringify(payload),
+        }).then((response) => {
+          if (!response.ok) throw new Error("Google Apps Script responded with HTTP " + response.status);
+          return response.json().catch(() => ({}));
+        });
+        return withSyncRetry(singlePost);
+      };
+
+      /* One delegated handler for both live tables. Local-first: the in-memory
+         order and localStorage are updated before anything touches the network,
+         the pill repaints immediately, and the Sheet sync runs in the
+         background. A failed sync is logged only - the change already stuck
+         locally, so the badge is never rolled back and no error toast fires. */
+      const handlePaymentStatusClick = (event) => {
+        const button = event.target.closest(".pay-status");
+        if (!button) return;
+        const orderId = button.dataset.payId;
+        const orders = readOrders();
+        const target = orders.find((order) => order.orderId === orderId);
+        if (!target) {
+          showToast("Order no longer available. Refresh the table.");
+          return;
+        }
+
+        const wasCompleted = normalizePaymentStatus(target) === "completed";
+        const nextCompleted = !wasCompleted;
+        const nextStatus = nextCompleted ? "completed" : "pending";
+        const nextLabel = nextCompleted ? "Completed" : "Pending";
+        const serverId = target._rowId || target.orderId || orderId;
+
+        /* 1. Local-first: mutate the state array, mirror it to localStorage,
+           then repaint. All synchronous, so the green "PAYMENT COMPLETED"
+           badge appears the instant the owner clicks. */
+        target.paymentStatus = nextStatus;
+        persistOrdersLocally(orders);
+        paintPaymentBadge(button, nextCompleted);
+        renderAll();
+        showToast("Payment marked " + nextLabel);
+
+        /* 2. Background sync. A refusal is logged, never surfaced, because the
+           local record already holds the new value. */
+        if (backendReady && backend) {
+          try {
+            syncOrderPaymentStatusToSheets(serverId, nextStatus)
+              .catch((error) => {
+                console.warn("[Orders] payment status background sync failed:", error && error.message);
+              });
+          } catch (error) {
+            console.warn("[Orders] payment status background sync failed:", error && error.message);
+          }
+        }
       };
 
       ordersBody.addEventListener("click", (event) => {
@@ -3164,28 +3404,6 @@
         openNativeDatePicker(input);
       };
 
-      /* Mirrors the change into the raw localStorage array, skipping any
-         orders that don't match. Returns true when something was written so
-         the caller can roll back precisely. */
-      const writeLocalDeliveryDate = (orderId, isoDate) => {
-        try {
-          const stored = JSON.parse(localStorage.getItem(ORDERS_STORAGE_KEY) || "[]");
-          if (!Array.isArray(stored)) return false;
-          let changed = false;
-          const next = stored.map((order) => {
-            if (!order || String(order.orderId || order.id || "") !== orderId) return order;
-            changed = true;
-            return Object.assign({}, order, { requestedDeliveryDate: isoDate });
-          });
-          if (!changed) return false;
-          localStorage.setItem(ORDERS_STORAGE_KEY, JSON.stringify(next));
-          return true;
-        } catch (error) {
-          console.warn("[Orders] could not write delivery date:", error && error.message);
-          return false;
-        }
-      };
-
       /* Empty string means "clear the target", which is how the admin removes a
          date they entered by mistake.
 
@@ -3242,40 +3460,33 @@
           return;
         }
 
+        /* Local-first: update the in-memory state and localStorage before the
+           network, then repaint. renderAll() reads the mutated target (backend
+           mode) or the freshly cached row (local mode), so the selected date
+           shows on the pill immediately and is never reverted. */
         target.requestedDeliveryDate = nextDate;
-        const localUpdated = writeLocalDeliveryDate(orderId, nextDate);
+        persistOrdersLocally(orders);
+        input.setAttribute("data-previous", nextDate);
+        input.value = nextDate;
+        renderAll();
+        showToast(
+          orderId + " delivery date " +
+          (nextDate ? "set to " + formatShortDate(nextDate) : "cleared") + "."
+        );
 
-        if (!backendReady) {
-          renderAll();
-          showToast(
-            orderId + " delivery date " +
-            (nextDate ? "set to " + formatShortDate(nextDate) : "cleared") + "."
-          );
-          return;
+        /* Background sync. A refusal is logged, never surfaced, because the
+           date is already saved locally. */
+        if (backendReady && backend && typeof backend.updateOrderDeliveryDate === "function") {
+          const deliveryId = target.orderId || orderId;
+          try {
+            Promise.resolve(backend.updateOrderDeliveryDate(deliveryId, nextDate))
+              .catch((error) => {
+                console.warn("[Orders] delivery date background sync failed:", error && error.message);
+              });
+          } catch (error) {
+            console.warn("[Orders] delivery date background sync failed:", error && error.message);
+          }
         }
-
-        input.disabled = true;
-        /* Order ID (not the row index): Code.gs re-resolves the Sheet row by
-           ID at write time, so row shifts after deletes can never misplace
-           the date. Retries once after 1s on lock/transient errors. */
-        const deliveryId = target.orderId || orderId;
-        withSyncRetry(() => backend
-          .updateOrderDeliveryDate(deliveryId, nextDate))
-          .then(() => {
-            renderAll();
-            showToast(
-              orderId + " delivery date " +
-              (nextDate ? "set to " + formatShortDate(nextDate) : "cleared") + "."
-            );
-          })
-          .catch((error) => {
-            console.warn("[Orders] delivery date update failed:", error && error.message);
-            target.requestedDeliveryDate = previousDate;
-            if (localUpdated) writeLocalDeliveryDate(orderId, previousDate);
-            input.value = previousDate;
-            input.disabled = false;
-            showToast("Could not save the delivery date. Please retry.");
-          });
       };
 
       [recentOrdersBody, ordersBody].forEach((body) => {
@@ -3286,6 +3497,8 @@
            nothing and means a row can never sit without a working action. */
         body.addEventListener("click", handleReportClick);
         body.addEventListener("click", handleDeleteClick);
+        /* Payment pill is rendered in both live tables, so both toggle it. */
+        body.addEventListener("click", handlePaymentStatusClick);
       });
 
       /* ---------------- Executive analytics: data layer ----------------
@@ -4800,9 +5013,9 @@
         return (
           '<td class="cell-order">' + escapeHTML(entry.orderId) +
             '<span class="cell-sub">Ordered ' + escapeHTML(formatDate(entry.createdAt)) + "</span></td>" +
-          '<td class="cell-strong">' + escapeHTML(entry.customerName || "—") +
+          '<td class="cell-strong">' + escapeHTML(entry.customerName || "â€”") +
             '<span class="cell-sub">' + escapeHTML(entry.phone || "No phone") +
-            (entry.email ? " · " + escapeHTML(entry.email) : "") + "</span></td>" +
+            (entry.email ? " Â· " + escapeHTML(entry.email) : "") + "</span></td>" +
           '<td class="cell-items"><ul>' +
             items.map((item) => "<li>" + escapeHTML(item.title) + " &times;" + escapeHTML(item.quantity) + "</li>").join("") +
             "</ul></td>" +
@@ -4918,7 +5131,7 @@ const exportLogCSV = () => {
 
         const currencyLabelForExport = currencyLabel();
         const lines = [
-          ["LUREÍ Dubai — Completed Orders Log"],
+          ["LUREÃ Dubai â€” Completed Orders Log"],
           /* Both filters, named separately: the file is only honest if a reader
              can tell which of the two actually narrowed it. */
           ["Timeframe", scope ? scope.meta.label : "All recorded orders"],
@@ -5026,7 +5239,7 @@ const exportCSV = () => {
 
         /* A summary block first, then a blank spacer, so the file opens with
            the executive answer rather than a wall of line items. */
-        rows.push(["LUREÍ Dubai — Executive Report"]);
+        rows.push(["LUREÃ Dubai â€” Executive Report"]);
         rows.push(["Period", range.meta.label]);
         rows.push(["Date range (GST)", describeRange(range)]);
         rows.push(["Exported", new Date().toISOString()]);
@@ -5043,7 +5256,7 @@ const exportCSV = () => {
         rows.push(["Unique buyers", metrics.buyers]);
         rows.push(["Repeat buyers", metrics.repeatBuyers]);
         rows.push(["Repeat buyer rate", formatPercent(metrics.repeatRate)]);
-        rows.push(["Peak ordering hour (GST)", hours.peak >= 0 ? String(hours.peak).padStart(2, "0") + ":00" : "—"]);
+        rows.push(["Peak ordering hour (GST)", hours.peak >= 0 ? String(hours.peak).padStart(2, "0") + ":00" : "â€”"]);
         rows.push([]);
         rows.push(["Category", "Units", "Share"]);
         categories.rows.forEach((row) => {

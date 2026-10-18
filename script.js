@@ -452,6 +452,15 @@
     updateOrderDeliveryDate: (orderId, date) => gasRequest("updateDeliveryDate", { orderId, date }),
     updateDeliveryDate: (orderId, date) => gasRequest("updateDeliveryDate", { orderId, date }),
 
+    /* Payment-status writer for the dashboard's interactive PAYMENT pill.
+       Sends the canonical paymentStatus key (Code.gs also accepts `status`);
+       kept distinct from updateOrderStatus so payment and fulfilment never
+       overwrite each other. */
+    updateOrderPaymentStatus: (orderId, paymentStatus) =>
+      gasRequest("updateOrderPaymentStatus", { orderId, paymentStatus }),
+    updateOrderPayment: (orderId, paymentStatus) =>
+      gasRequest("updateOrderPaymentStatus", { orderId, paymentStatus }),
+
     addProduct: (product) => gasRequest("addProduct", { product }),
     updateProduct: (product) => gasRequest("updateProduct", { product }),
     updateStock: (id, stock) => gasRequest("updateStock", { id, stock }),
@@ -767,6 +776,19 @@
     return trimmed;
   };
 
+  /* A product may carry several photos now. Each is normalised through the same
+     rules as the single image (remote/base64 kept, dead folder dropped), and
+     duplicates are collapsed so a re-upload cannot inflate the gallery. */
+  var sanitizeImages = function (value) {
+    if (!Array.isArray(value)) return [];
+    var out = [];
+    value.forEach(function (item) {
+      var src = sanitizeImage(item);
+      if (src && out.indexOf(src) === -1) out.push(src);
+    });
+    return out;
+  };
+
   var sanitize = function (raw) {
     var product = {};
     product.id = raw.id !== undefined && raw.id !== null ? raw.id : null;
@@ -775,6 +797,7 @@
     product.category = String(raw.category || "").trim() || priceBucketFor(raw.price);
     product.type = String(raw.type || "").trim() || "earrings";
     product.image = sanitizeImage(raw.image);
+    product.images = sanitizeImages(raw.images);
     product.description = String(raw.description || raw.desc || "").trim();
     product.badge = raw.badge ? String(raw.badge).trim() : "";
     product.stock = stockFor(raw.stock);
@@ -880,6 +903,9 @@
     Object.keys(override).forEach(function (key) {
       var value = override[key];
       if (value === null || value === undefined || value === "") return;
+      /* An empty gallery must not blank a built-in one; only a non-empty
+         array counts as a real override. */
+      if (Array.isArray(value) && value.length === 0) return;
       merged[key] = value;
     });
     return merged;
@@ -1052,6 +1078,7 @@
         category: input.category,
         type: input.type,
         image: input.image,
+        images: input.images,
         description: input.description,
         badge: input.badge,
         stock: stockFor(input.stock),
@@ -1191,7 +1218,10 @@
 
   var grid = null;
   var editingId = null;
-  var pendingImage = null;
+  /* Every photo the admin has staged for the product being added. The first
+     entry is the card's primary image; the whole list ships as the product's
+     gallery. */
+  var pendingImages = [];
   var observer = null;
   var unsubscribe = null;
 var mounted = false;
@@ -1245,10 +1275,13 @@ var mounted = false;
 
   /* EXIT & SAVE from the dashboard-launched editor: every SAVE already
      persisted to localStorage + backend (store.commit), so exiting only
-     clears the edit-session flag and returns to the Boutique Overview.
-     It never navigates to index.html or the public site. leaveEditMode
-     above stays for the unauthorized-mount path, which must remain here. */
-  var returnToDashboard = function () {
+     clears the edit-session flag and returns the owner straight to the Admin
+     Dashboard - never a storefront reload. The admin preview flag is left
+     intact so the dashboard guard still admits the navigation, and the target
+     carries no editMode parameter so the browser can never restore a cached
+     edit view. leaveEditMode above stays for the unauthorized-mount path,
+     which must remain here. */
+  var exitToDashboard = function () {
     catalogue.exitEditMode();
     window.location.href = "admin-dashboard.html";
   };
@@ -1264,7 +1297,7 @@ var mounted = false;
       '<span class="lurei-edit-bar__hint">Every change saves to your live catalogue instantly</span>' +
       '<button class="lurei-edit-bar__exit" type="button">EXIT &amp; SAVE</button>';
 
-    bar.querySelector(".lurei-edit-bar__exit").addEventListener("click", returnToDashboard);
+    bar.querySelector(".lurei-edit-bar__exit").addEventListener("click", exitToDashboard);
     return bar;
   };
 
@@ -1554,14 +1587,12 @@ var mounted = false;
         "</header>" +
         '<form class="lurei-modal__body" novalidate>' +
           '<div class="lurei-modal__row">' +
-            '<div class="lurei-upload" data-lurei-drop>' +
-              '<input class="lurei-upload__input" type="file" accept="image/*" data-lurei-file aria-label="Upload product image" />' +
-              '<div class="lurei-upload__preview" data-lurei-preview>' +
-                '<span class="lurei-upload__placeholder">'+ IMAGE_GLYPH +'</span>' +
-              "</div>" +
+            '<div class="lurei-upload lurei-upload--multi" data-lurei-drop>' +
+              '<input class="lurei-upload__input" type="file" accept="image/*" multiple data-lurei-file aria-label="Upload product images" />' +
+              '<div class="lurei-upload__grid" data-lurei-preview></div>' +
               '<div class="lurei-upload__meta">' +
-                '<span class="lurei-upload__label">Product image</span>' +
-                '<span class="lurei-upload__hint" data-lurei-filename>Tap to upload a photo</span>' +
+                '<span class="lurei-upload__label">Product images</span>' +
+                '<span class="lurei-upload__hint" data-lurei-filename>Tap + to upload photos</span>' +
               "</div>" +
             "</div>" +
             '<div class="lurei-modal__fields">' +
@@ -1609,7 +1640,7 @@ var mounted = false;
     modal.hidden = false;
     document.body.classList.add("lurei-modal-open");
     modal.querySelector("[data-lurei-error]").hidden = true;
-    pendingImage = "";
+    pendingImages = [];
     refreshCategoryDatalist();
     renderPreview();
     var first = modal.querySelector("[data-lurei-name]");
@@ -1622,7 +1653,7 @@ var mounted = false;
     document.body.classList.remove("lurei-modal-open");
     var form = modal.querySelector("form");
     if (form) form.reset();
-    pendingImage = "";
+    pendingImages = [];
     renderPreview();
     if (lastFocus && typeof lastFocus.focus === "function") lastFocus.focus();
   };
@@ -1631,15 +1662,55 @@ var mounted = false;
     if (!modal) return;
     var preview = modal.querySelector("[data-lurei-preview]");
     var filename = modal.querySelector("[data-lurei-filename]");
+    var drop = modal.querySelector("[data-lurei-drop]");
     if (!preview || !filename) return;
 
-    if (pendingImage) {
-      preview.innerHTML = '<img src="' + escapeHTML(pendingImage) + '" alt="" />';
-      filename.textContent = "Ready to publish";
-    } else {
-      preview.innerHTML = '<span class="lurei-upload__placeholder">' + IMAGE_GLYPH + "</span>";
-      filename.textContent = "Tap to upload a photo";
-    }
+    preview.replaceChildren();
+
+    pendingImages.forEach(function (src, index) {
+      var cell = document.createElement("div");
+      cell.className = "lurei-upload__thumb";
+      cell.setAttribute("data-lurei-thumb", String(index));
+
+      var img = document.createElement("img");
+      img.src = src;
+      img.alt = "";
+      img.decoding = "async";
+      cell.appendChild(img);
+
+      if (index === 0) {
+        var tag = document.createElement("span");
+        tag.className = "lurei-upload__main";
+        tag.textContent = "Main";
+        cell.appendChild(tag);
+      }
+
+      var remove = document.createElement("button");
+      remove.type = "button";
+      remove.className = "lurei-upload__remove";
+      remove.setAttribute("data-lurei-remove", String(index));
+      remove.setAttribute("aria-label", "Remove photo " + (index + 1));
+      remove.innerHTML = "&times;";
+      cell.appendChild(remove);
+
+      preview.appendChild(cell);
+    });
+
+    /* The + tile stays last and is always present, so the panel can accept a
+       first upload and every additional one from the same affordance. */
+    var add = document.createElement("button");
+    add.type = "button";
+    add.className = "lurei-upload__add";
+    add.setAttribute("data-lurei-add", "");
+    add.setAttribute("aria-label", "Add another photo");
+    add.innerHTML = '<span aria-hidden="true">+</span>';
+    preview.appendChild(add);
+
+    if (drop) drop.classList.toggle("is-ready", pendingImages.length > 0);
+
+    filename.textContent = pendingImages.length
+      ? pendingImages.length + (pendingImages.length === 1 ? " photo ready" : " photos ready")
+      : "Tap + to upload photos";
   };
 
   /* ---------------- Image -> Base64 ---------------- */
@@ -1697,12 +1768,32 @@ var mounted = false;
     });
   };
 
-  var handleFile = function (file, previewHost, errorHost) {
-    return readImageAsDataURL(file).then(function (dataURL) {
-      pendingImage = dataURL;
+  /* Reads one or many chosen/dropped files and appends each usable photo to
+     the staged gallery. Non-image entries are ignored rather than aborting the
+     whole batch, so a mixed drop still lands its photos. */
+  var handleFiles = function (fileList, previewHost, errorHost) {
+    var files = Array.prototype.slice.call(fileList || []).filter(function (file) {
+      return file && /^image\//.test(file.type);
+    });
+
+    if (!files.length) {
+      var error = new Error("Please choose an image file (JPG, PNG or WebP).");
+      if (errorHost) {
+        errorHost.textContent = error.message;
+        errorHost.hidden = false;
+      }
+      return Promise.reject(error);
+    }
+
+    return Promise.all(files.map(function (file) {
+      return readImageAsDataURL(file);
+    })).then(function (dataURLs) {
+      dataURLs.forEach(function (dataURL) {
+        if (dataURL && pendingImages.indexOf(dataURL) === -1) pendingImages.push(dataURL);
+      });
       renderPreview();
       if (previewHost) previewHost.classList.add("is-ready");
-      return dataURL;
+      return dataURLs;
     }).catch(function (error) {
       if (errorHost) {
         errorHost.textContent = error.message;
@@ -1873,7 +1964,8 @@ var onGridClick = function (event) {
         category: catalogue.priceBucketFor(price),
         type: type,
         description: description,
-        image: pendingImage,
+        image: pendingImages[0] || "",
+        images: pendingImages.slice(),
         stock: stockRaw === "" ? null : Number(stockRaw),
       });
 
@@ -1908,29 +2000,52 @@ var onGridClick = function (event) {
 
     var drop = modal.querySelector("[data-lurei-drop]");
     var file = modal.querySelector("[data-lurei-file]");
+    var preview = modal.querySelector("[data-lurei-preview]");
     var errorHost = modal.querySelector("[data-lurei-error]");
 
     var accept = function (chosen) {
-      if (!chosen) return;
+      if (!chosen || !chosen.length) return;
       errorHost.hidden = true;
-      handleFile(chosen, drop, errorHost).catch(function () {
+      handleFiles(chosen, drop, errorHost).catch(function () {
         /* already surfaced in the modal */
       });
     };
 
     file.addEventListener("change", function () {
-      accept(file.files && file.files[0]);
+      accept(file.files);
+      /* Reset so re-selecting the same file still fires change next time. */
+      file.value = "";
     });
 
-    /* The hidden file input is stretched over the whole drop panel, so a
-       normal click already opens the picker natively. This handler is only
-       the fallback for a click that lands on the panel chrome itself --
-       without the guard it would fire a second dialog on top of the first. */
+    /* The + tile opens the picker for extra photos; the x on a tile drops just
+       that one. Both stop the click here so the panel-wide handler below does
+       not open the picker as well. */
+    preview.addEventListener("click", function (event) {
+      var remove = event.target.closest("[data-lurei-remove]");
+      if (remove) {
+        event.preventDefault();
+        event.stopPropagation();
+        var index = Number(remove.getAttribute("data-lurei-remove"));
+        if (index >= 0 && index < pendingImages.length) pendingImages.splice(index, 1);
+        renderPreview();
+        return;
+      }
+
+      if (event.target.closest("[data-lurei-add]")) {
+        event.stopPropagation();
+        file.click();
+      }
+    });
+
+    /* Clicking the panel chrome (not the thumbnail grid, which owns its own
+       + / x buttons) opens the picker. The file input is visually hidden, so
+       this is what makes a first, empty upload possible. */
     var fileDragged = false;
 
     drop.addEventListener("click", function (event) {
       if (fileDragged) return;
       if (event.target === file) return;
+      if (event.target.closest("[data-lurei-preview]")) return;
       file.click();
     });
 
@@ -1951,7 +2066,7 @@ var onGridClick = function (event) {
       drop.classList.remove("is-dragging");
 
       var dropped = event.dataTransfer && event.dataTransfer.files;
-      accept(dropped && dropped[0]);
+      accept(dropped);
     });
   };
 
@@ -2013,10 +2128,14 @@ var onGridClick = function (event) {
      then written back so a refresh (and the EXIT & SAVE button) agree. */
   var requestedViaUrl = function () {
     try {
-      return new URLSearchParams(window.location.search).get("editMode") === "true";
+      if (new URLSearchParams(window.location.search).get("editMode") === "true") return true;
     } catch (error) {
-      return false;
+      /* fall through to the raw-string check below */
     }
+    /* Explicit string check as well: an embedded/in-app browser can hand back
+       a search string URLSearchParams does not parse the way we expect, and an
+       owner must never be dropped into a storefront without their controls. */
+    return String(window.location.search || "").indexOf("editMode=true") !== -1;
   };
 
   /* The homepage is a pure storefront preview and never hosts the editor.
@@ -2094,9 +2213,34 @@ var onGridClick = function (event) {
     }
   };
 
+  /* The dashboard hand-off lands here on collections.html?editMode=true. That
+     URL is an explicit instruction to render the editor, so it is checked
+     directly (not only through the stored flag) and mount() is attempted on
+     DOMContentLoaded as well, so the controls appear even if the grid parsed
+     after this closure first ran. mount() is idempotent, so calling it from
+     both paths is harmless. */
+  var startFromEditUrl = function () {
+    if (String(window.location.search || "").indexOf("editMode=true") === -1) return;
+    start();
+  };
+
+  /* Back/forward cache: a restored page keeps the DOM and JS state from the
+     earlier visit, so a storefront snapshot cached from a clean customer view
+     can come back with the URL still reading ?editMode=true but no bar, FAB or
+     card tools. Re-running start() is idempotent - if the editor is already
+     mounted it is a no-op, otherwise mount() re-injects every control so the
+     editor never reappears half-rendered. */
+  if (typeof window !== "undefined" && window.addEventListener) {
+    window.addEventListener("pageshow", startFromEditUrl);
+  }
+
   if (document.readyState === "loading") {
-    document.addEventListener("DOMContentLoaded", start);
+    document.addEventListener("DOMContentLoaded", function () {
+      startFromEditUrl();
+      start();
+    });
   } else {
+    startFromEditUrl();
     start();
   }
 })();
@@ -2393,6 +2537,11 @@ var onGridClick = function (event) {
   const WISHLIST_ICON =
     '<svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 21l-8.5-8.5a5.6 5.6 0 1 1 8.5-7.5 5.6 5.6 0 1 1 8.5 7.5L12 21z"></path></svg>';
 
+  /* Expand/maximize glyph for the product image lightbox trigger. Drawn with a
+     brighter, heavier stroke so it stays legible on both dark and light photos. */
+  const LIGHTBOX_ICON =
+    '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 4H4v5"></path><path d="M15 4h5v5"></path><path d="M15 20h5v-5"></path><path d="M9 20H4v-5"></path></svg>';
+
   /** Stock count as a whole number of pieces, or null when nobody has counted.
  *  null is NOT zero: most of the built-in catalogue carries no count, and
  *  reading that as an empty shelf would stamp "OUT OF STOCK" over everything.
@@ -2658,6 +2807,18 @@ const stockLabelFor = (count) => `STOCK ${count} LEFT`;
     if (hasWishlist(product.id)) heart.classList.add("is-wishlisted");
     media.appendChild(heart);
 
+    /* Expand trigger — a pure absolute overlay on the image frame, so it adds
+       zero width/height to the media box and cannot shrink the photo. It is a
+       plain button with no cart/wishlist data attributes, so the existing
+       delegation never mistakes it for an add-to-cart or wishlist action. */
+    const expand = document.createElement("button");
+    expand.type = "button";
+    expand.className = "product-card__expand";
+    expand.title = "Expand image";
+    expand.setAttribute("aria-label", `View ${product.title} image`);
+    expand.innerHTML = LIGHTBOX_ICON;
+    media.appendChild(expand);
+
     const body = document.createElement("div");
     body.className = "product-card__body";
 
@@ -2706,6 +2867,121 @@ const stockLabelFor = (count) => `STOCK ${count} LEFT`;
     card.append(media, body);
     return card;
   };
+
+  /* ------------------------------------------------------------------ *
+   * 4a-ii. Product image lightbox
+   *
+   * A single overlay is created on first use and reused from then on. The
+   * viewer never touches the product record: it simply reads the resolved
+   * source straight off the card's <img>, so the backend, cart and wishlist
+   * paths stay exactly as they were.
+   * ------------------------------------------------------------------ */
+  let lightboxEl = null;
+  let lightboxReturnFocus = null;
+
+  const ensureLightbox = () => {
+    if (lightboxEl) return lightboxEl;
+
+    const overlay = document.createElement("div");
+    overlay.className = "lightbox";
+    overlay.id = "product-lightbox";
+    overlay.setAttribute("role", "dialog");
+    overlay.setAttribute("aria-modal", "true");
+    overlay.setAttribute("aria-label", "Product image viewer");
+    overlay.setAttribute("aria-hidden", "true");
+
+    const closeBtn = document.createElement("button");
+    closeBtn.type = "button";
+    closeBtn.className = "lightbox__close";
+    closeBtn.setAttribute("aria-label", "Close image viewer");
+    closeBtn.innerHTML = "&times;";
+
+    const stage = document.createElement("figure");
+    stage.className = "lightbox__stage";
+
+    const img = document.createElement("img");
+    img.className = "lightbox__img";
+    img.alt = "";
+    img.decoding = "async";
+
+    stage.appendChild(img);
+    overlay.append(closeBtn, stage);
+    document.body.appendChild(overlay);
+
+    overlay.addEventListener("click", (event) => {
+      /* Tapping the backdrop or the letterboxed space around the photo closes
+         the viewer; tapping the photo itself does not. */
+      if (event.target === overlay || event.target === stage) closeLightbox();
+    });
+    closeBtn.addEventListener("click", closeLightbox);
+
+    lightboxEl = overlay;
+    return overlay;
+  };
+
+  const openLightbox = (src, alt) => {
+    if (!src) return;
+    const overlay = ensureLightbox();
+    const img = overlay.querySelector(".lightbox__img");
+    img.src = src;
+    img.alt = alt || "";
+    lightboxReturnFocus = document.activeElement;
+    overlay.classList.add("is-open");
+    overlay.setAttribute("aria-hidden", "false");
+    document.body.classList.add("lightbox-open");
+    const closeBtn = overlay.querySelector(".lightbox__close");
+    if (closeBtn) closeBtn.focus();
+  };
+
+  function closeLightbox() {
+    if (!lightboxEl || !lightboxEl.classList.contains("is-open")) return;
+    lightboxEl.classList.remove("is-open");
+    lightboxEl.setAttribute("aria-hidden", "true");
+    document.body.classList.remove("lightbox-open");
+    if (
+      lightboxReturnFocus &&
+      typeof lightboxReturnFocus.focus === "function" &&
+      document.contains(lightboxReturnFocus)
+    ) {
+      lightboxReturnFocus.focus();
+    }
+    lightboxReturnFocus = null;
+  }
+
+  /* Delegated open for the full-screen viewer. Three triggers share it:
+     · the product card's expand badge,
+     · the Quick View modal's expand badge,
+     · the Quick View modal's main photo (tapping it whole). */
+  document.addEventListener("click", (event) => {
+    const cardExpand = event.target.closest(".product-card__expand");
+    const quickExpand = event.target.closest(".quickview__expand");
+    const quickImg = event.target.closest(".quickview__img");
+    if (!cardExpand && !quickExpand && !quickImg) return;
+
+    let img = null;
+    if (cardExpand) {
+      const media = cardExpand.closest(".product-card__media");
+      img = media ? media.querySelector("img") : null;
+    } else if (quickImg) {
+      img = quickImg;
+    } else {
+      const stage = quickExpand.closest(".quickview__stage");
+      img = stage ? stage.querySelector(".quickview__img") : null;
+    }
+    if (!img || !img.getAttribute("src")) return;
+
+    event.preventDefault();
+    openLightbox(img.currentSrc || img.src, img.alt || "");
+  });
+
+  document.addEventListener("keydown", (event) => {
+    if (event.key !== "Escape") return;
+    /* The viewer can sit on top of Quick View; ESC must dismiss only the
+       top-most layer, so stop the event when the lightbox is the one open. */
+    if (!lightboxEl || !lightboxEl.classList.contains("is-open")) return;
+    event.stopImmediatePropagation();
+    closeLightbox();
+  });
 
   /* ------------------------------------------------------------------ *
    * 4b. New In — "Autumn Vault" curated arrivals
@@ -3478,6 +3754,33 @@ const stockLabelFor = (count) => `STOCK ${count} LEFT`;
     showLureiToast(`Added to bag \u2014 ${product.title}`);
   };
 
+  /* Quick View adds N pieces at once. Same storage contract as addToCart() —
+     it reuses the shared cart array, saveCart(), updateBadge() and
+     renderCartItems() and never rewrites the cart mechanics themselves. */
+  const addToCartQuantity = (id, qty) => {
+    const product = catalogue.find((p) => String(p.id) === String(id));
+    if (!product) return;
+    const amount = Math.max(1, Math.floor(Number(qty) || 1));
+
+    const existing = cart.find((item) => String(item.id) === String(product.id));
+    if (existing) {
+      existing.quantity += amount;
+    } else {
+      cart.push({
+        id: product.id,
+        title: product.title,
+        price: product.price,
+        image: product.image,
+        quantity: amount,
+      });
+    }
+
+    saveCart();
+    updateBadge();
+    renderCartItems();
+    showLureiToast(`Added to bag \u2014 ${product.title}`);
+  };
+
   const changeQty = (id, action) => {
     const item = cart.find((p) => String(p.id) === String(id));
     if (!item) return;
@@ -3522,6 +3825,344 @@ const stockLabelFor = (count) => `STOCK ${count} LEFT`;
   /* Restore persisted cart on load */
   updateBadge();
   renderCartItems();
+
+  /* ------------------------------------------------------------------ *
+   * 6b. Product Quick View modal
+   *
+   * Opens from a product photo or title in the grid. Injected once on
+   * first use and reused, mirroring the lightbox/service-modal pattern.
+   * It reads product data and hands the chosen quantity to the shared
+   * cart helpers — no edit-mode, stock-toggle or storage logic is touched.
+   * ------------------------------------------------------------------ */
+  const QUICKVIEW_CLOSE_ICON =
+    '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"></path></svg>';
+
+  let quickViewEl = null;
+  let quickViewProduct = null;
+  let quickViewQty = 1;
+  let quickViewReturnFocus = null;
+
+  /* Gallery sources: prefer an explicit photo array, otherwise fall back to the
+     single product image (and its stored fallback), de-duplicated. */
+  const quickViewGalleryFor = (product) => {
+    const out = [];
+    const add = (value) => {
+      if (typeof value !== "string") return;
+      const src = value.trim();
+      if (src && out.indexOf(src) === -1) out.push(src);
+    };
+    if (Array.isArray(product.images)) product.images.forEach(add);
+    if (Array.isArray(product.gallery)) product.gallery.forEach(add);
+    add(product.image);
+    if (Array.isArray(product.fallbackImages)) product.fallbackImages.forEach(add);
+    add(product.fallbackImage);
+    return out;
+  };
+
+  /* Resolve a photo through the shared probe so local filenames heal exactly
+     like they do on the cards; never replaces the node, just marks failure. */
+  const resolveQuickViewImage = (img, src, product) => {
+    img.classList.remove("is-missing");
+    wireImage(img, { image: src, title: product.title }, () => {
+      img.classList.add("is-missing");
+    });
+  };
+
+  const ensureQuickView = () => {
+    if (quickViewEl) return quickViewEl;
+
+    const overlay = document.createElement("div");
+    overlay.className = "quickview-overlay";
+    overlay.id = "quickview-overlay";
+    overlay.setAttribute("aria-hidden", "true");
+
+    const modal = document.createElement("div");
+    modal.className = "quickview";
+    modal.id = "quickview-modal";
+    modal.setAttribute("role", "dialog");
+    modal.setAttribute("aria-modal", "true");
+    modal.setAttribute("aria-labelledby", "quickview-title");
+    modal.hidden = true;
+
+    const card = document.createElement("div");
+    card.className = "quickview__card";
+
+    const closeBtn = document.createElement("button");
+    closeBtn.type = "button";
+    closeBtn.className = "quickview__close";
+    closeBtn.setAttribute("aria-label", "Close quick view");
+    closeBtn.innerHTML = QUICKVIEW_CLOSE_ICON;
+
+    /* Media column */
+    const media = document.createElement("div");
+    media.className = "quickview__media";
+
+    const stage = document.createElement("div");
+    stage.className = "quickview__stage";
+    const mainImg = document.createElement("img");
+    mainImg.className = "quickview__img";
+    mainImg.alt = "";
+    mainImg.decoding = "async";
+
+    const stageExpand = document.createElement("button");
+    stageExpand.type = "button";
+    stageExpand.className = "quickview__expand";
+    stageExpand.title = "View full size";
+    stageExpand.setAttribute("aria-label", "View image full size");
+    stageExpand.innerHTML = LIGHTBOX_ICON;
+
+    stage.append(mainImg, stageExpand);
+
+    const thumbs = document.createElement("div");
+    thumbs.className = "quickview__thumbs";
+    media.append(stage, thumbs);
+
+    /* Details column */
+    const info = document.createElement("div");
+    info.className = "quickview__info";
+
+    const eyebrow = document.createElement("p");
+    eyebrow.className = "quickview__eyebrow";
+    eyebrow.textContent = "LUR\u00C9I COLLECTION";
+
+    const title = document.createElement("h2");
+    title.className = "quickview__title";
+    title.id = "quickview-title";
+
+    const price = document.createElement("p");
+    price.className = "quickview__price";
+
+    const desc = document.createElement("p");
+    desc.className = "quickview__desc";
+
+    const qtyWrap = document.createElement("div");
+    qtyWrap.className = "quickview__qty-wrap";
+    const qtyLabel = document.createElement("span");
+    qtyLabel.className = "quickview__qty-label";
+    qtyLabel.textContent = "Quantity";
+    const qty = document.createElement("div");
+    qty.className = "quickview__qty";
+
+    const minus = document.createElement("button");
+    minus.type = "button";
+    minus.className = "quickview__step";
+    minus.dataset.step = "-1";
+    minus.setAttribute("aria-label", "Decrease quantity");
+    minus.textContent = "\u2212";
+
+    const count = document.createElement("span");
+    count.className = "quickview__count";
+    count.setAttribute("aria-live", "polite");
+    count.textContent = "1";
+
+    const plus = document.createElement("button");
+    plus.type = "button";
+    plus.className = "quickview__step";
+    plus.dataset.step = "1";
+    plus.setAttribute("aria-label", "Increase quantity");
+    plus.textContent = "+";
+
+    qty.append(minus, count, plus);
+    qtyWrap.append(qtyLabel, qty);
+
+    const addBtn = document.createElement("button");
+    addBtn.type = "button";
+    addBtn.className = "quickview__add";
+    addBtn.textContent = "Add to Bag";
+
+    info.append(eyebrow, title, price, desc, qtyWrap, addBtn);
+    card.append(closeBtn, media, info);
+    modal.appendChild(card);
+    document.body.append(overlay, modal);
+
+    /* ---- Wiring ---- */
+    closeBtn.addEventListener("click", closeQuickView);
+    overlay.addEventListener("click", closeQuickView);
+    modal.addEventListener("click", (event) => {
+      if (event.target === modal) closeQuickView();
+    });
+
+    qty.addEventListener("click", (event) => {
+      const step = event.target.closest("[data-step]");
+      if (!step) return;
+      setQuickViewQty(quickViewQty + Number(step.dataset.step));
+    });
+
+    addBtn.addEventListener("click", () => {
+      if (!quickViewProduct || isSoldOut(quickViewProduct)) return;
+      const id = quickViewProduct.id;
+      addToCartQuantity(id, quickViewQty);
+      closeQuickView();
+      openDrawer();
+    });
+
+    quickViewEl = { overlay, modal, stage, mainImg, thumbs, title, price, desc, count, minus, plus, addBtn, closeBtn };
+    return quickViewEl;
+  };
+
+  const quickViewCap = (product) => {
+    if (isSoldOut(product)) return 0;
+    const counted = stockCountOf(product);
+    return counted && counted > 0 ? counted : Infinity;
+  };
+
+  const setQuickViewQty = (next) => {
+    const cap = quickViewProduct ? quickViewCap(quickViewProduct) : Infinity;
+    const upper = cap === Infinity ? Infinity : Math.max(1, cap);
+    quickViewQty = Math.max(1, Math.min(Number(next) || 1, upper));
+    if (quickViewEl) {
+      quickViewEl.count.textContent = String(quickViewQty);
+      quickViewEl.minus.disabled = quickViewQty <= 1;
+      quickViewEl.plus.disabled = cap !== Infinity && quickViewQty >= upper;
+    }
+  };
+
+  const buildQuickViewGallery = (ui, product) => {
+    const sources = quickViewGalleryFor(product);
+    ui.thumbs.replaceChildren();
+
+    /* Swaps only the <img>, leaving the persistent expand badge in place. */
+    const swapStageImage = (node) => {
+      const current = ui.stage.querySelector(".quickview__img");
+      if (current) current.replaceWith(node);
+      else ui.stage.prepend(node);
+      ui.mainImg = node;
+    };
+
+    if (!sources.length) {
+      const missing = document.createElement("img");
+      missing.className = "quickview__img is-missing";
+      missing.alt = "";
+      swapStageImage(missing);
+      ui.thumbs.hidden = true;
+      return;
+    }
+
+    /* Thumbnails only earn their space when there is more than one photo to
+       switch between; a lone image renders clean with no empty strip. */
+    ui.thumbs.hidden = sources.length <= 1;
+
+    /* A fresh <img> per swap keeps wireImage() from stacking load/error
+       probes on one node as the shopper flips between thumbnails. */
+    const setMain = (index) => {
+      const fresh = document.createElement("img");
+      fresh.className = "quickview__img";
+      fresh.alt = product.title;
+      fresh.decoding = "async";
+      resolveQuickViewImage(fresh, sources[index], product);
+      swapStageImage(fresh);
+      Array.prototype.forEach.call(ui.thumbs.children, (el, i) => {
+        el.classList.toggle("is-active", i === index);
+        el.setAttribute("aria-pressed", i === index ? "true" : "false");
+      });
+    };
+
+    sources.forEach((src, index) => {
+      const btn = document.createElement("button");
+      btn.type = "button";
+      btn.className = "quickview__thumb";
+      btn.setAttribute("aria-label", `Show image ${index + 1} of ${sources.length}`);
+      const img = document.createElement("img");
+      img.alt = "";
+      img.decoding = "async";
+      resolveQuickViewImage(img, src, product);
+      btn.appendChild(img);
+      btn.addEventListener("click", () => setMain(index));
+      ui.thumbs.appendChild(btn);
+    });
+
+    setMain(0);
+  };
+
+  function openQuickView(product, trigger) {
+    if (!product) return;
+    const ui = ensureQuickView();
+
+    quickViewProduct = product;
+    quickViewReturnFocus = trigger || document.activeElement;
+
+    ui.title.textContent = product.title;
+    ui.desc.textContent =
+      (product.description && String(product.description).trim()) ||
+      "A LUR\u00C9I piece finished for quiet, everyday luxury.";
+
+    const was = toNumber(product.originalPrice);
+    const now = toNumber(product.price);
+    ui.price.replaceChildren();
+    if (was !== null && now !== null && was > now) {
+      const wasEl = document.createElement("span");
+      wasEl.className = "quickview__was";
+      wasEl.textContent = formatPrice(was);
+      const nowEl = document.createElement("span");
+      nowEl.textContent = formatPrice(now);
+      ui.price.append(wasEl, nowEl);
+    } else {
+      ui.price.textContent = formatPrice(product.price);
+    }
+
+    const soldOut = isSoldOut(product);
+    ui.addBtn.disabled = soldOut;
+    ui.addBtn.textContent = soldOut ? "Out of Stock" : "Add to Bag";
+
+    setQuickViewQty(1);
+    buildQuickViewGallery(ui, product);
+
+    ui.overlay.classList.add("is-open");
+    ui.overlay.setAttribute("aria-hidden", "false");
+    ui.modal.hidden = false;
+    ui.modal.classList.add("quickview--open");
+    document.body.classList.add("lock-scroll");
+    window.requestAnimationFrame(() => ui.closeBtn.focus());
+  }
+
+  function closeQuickView() {
+    const ui = quickViewEl;
+    if (!ui || ui.modal.hidden) return;
+    ui.modal.classList.remove("quickview--open");
+    ui.modal.hidden = true;
+    ui.overlay.classList.remove("is-open");
+    ui.overlay.setAttribute("aria-hidden", "true");
+    document.body.classList.remove("lock-scroll");
+
+    if (
+      quickViewReturnFocus &&
+      typeof quickViewReturnFocus.focus === "function" &&
+      document.contains(quickViewReturnFocus)
+    ) {
+      quickViewReturnFocus.focus();
+    }
+    quickViewReturnFocus = null;
+    quickViewProduct = null;
+  }
+
+  /* The whole card is the tap target (photo, copy and the ivory padding alike).
+     Skipped while the admin editor is active, and any tap that lands on a card
+     control is handed back to that control: the Add to Cart and wishlist
+     handlers stay untouched, and the expand badge stays owned by the lightbox. */
+  document.addEventListener("click", (event) => {
+    if (document.body.classList.contains("lurei-edit-mode")) return;
+
+    const card = event.target.closest(".product-card");
+    if (!card) return;
+
+    if (
+      event.target.closest(
+        "button, a, .wishlist-heart, .product-card__cta, .lurei-card-tools, [data-lurei-action], [data-lurei-inline]"
+      )
+    ) {
+      return;
+    }
+
+    const product = catalogue.find((p) => String(p.id) === String(card.dataset.productId));
+    if (!product) return;
+
+    event.preventDefault();
+    openQuickView(product, card);
+  });
+
+  document.addEventListener("keydown", (event) => {
+    if (event.key === "Escape") closeQuickView();
+  });
 
   /* ------------------------------------------------------------------ *
    * 7. Checkout modal
@@ -4642,7 +5283,13 @@ Thank you!`;
       if (!anchorTarget) return;
       event.preventDefault();
       anchorTarget.scrollIntoView({ behavior: "smooth", block: "start" });
-      if (history.replaceState) history.replaceState(null, "", hrefAttr);
+      /* Only the hash changes: rebuilding the URL from hrefAttr alone would
+         drop the current path AND query string, collapsing parameters the page
+         depends on - most importantly collections.html?editMode=true, which
+         would silently strip the admin editor from the address bar. */
+      if (history.replaceState) {
+        history.replaceState(null, "", window.location.pathname + window.location.search + hrefAttr);
+      }
     });
   };
 
@@ -4987,6 +5634,9 @@ Thank you!`;
     /* Modal open / close */
     const openAuthModal = (panel = "signin") => {
       if (!authModal) return;
+      /* Wipe every field and reset the forms BEFORE the modal is shown so the
+         inputs are always empty on open, no matter how it was last closed. */
+      resetAuthModal();
       authTabs.forEach((tab) => {
         const p = document.getElementById("auth-panel-" + tab.dataset.authPanel);
         const active = tab.dataset.authPanel === panel;
@@ -5143,7 +5793,16 @@ Thank you!`;
     /* Close handlers */
     if (authClose) authClose.addEventListener("click", () => { resetAuthModal(); closeAuthModal(); });
     if (authGuest) authGuest.addEventListener("click", () => { resetAuthModal(); closeAuthModal(); });
-    /* Outside overlay click close is disabled. */
+    /* Backdrop click (directly on the scrim, outside the card) resets every
+       field and closes the modal. Clicks inside the card — tabs, inputs,
+       Google button — bubble here but are ignored, so nothing else changes. */
+    if (authModal) {
+      authModal.addEventListener("click", (e) => {
+        const onScrim = e.target === authModal ||
+          (e.target.classList && e.target.classList.contains("auth-modal__wrap"));
+        if (onScrim) { resetAuthModal(); closeAuthModal(); }
+      });
+    }
     document.addEventListener("keydown", (e) => { if (e.key === "Escape") closeAuthModal(); });
 
     /* Back arrow exit button (#modalBackBtn) — clears fields and closes the auth modal */
