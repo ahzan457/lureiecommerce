@@ -723,7 +723,7 @@ body:not(.admin-page) .brand__accent {
 }
 
 /* ==========================================================================
-   THE LURÉI LEGACY — brand editorial
+   THE LUREÍ LEGACY — brand editorial
    ========================================================================== */
 .legacy-editorial {
   background: #FAF8F5;
@@ -843,11 +843,89 @@ body:not(.admin-page) .legacy-editorial__visual img {
 }
 
 /* ==========================================================================
+   OUR STORY — About Us / brand story (about.html)
+   Centered quiet-luxury composition: centered gold eyebrow + serif heading,
+   with a left-aligned 720px column for the tagline and body copy.
+   ========================================================================== */
+.our-story {
+  background: var(--color-bg);
+  padding-block: clamp(3.5rem, 8vw, 6rem);
+  padding-inline: 1.25rem;
+}
+
+.our-story__inner {
+  max-width: 800px;
+  margin: 0 auto;
+  text-align: center;
+}
+
+.our-story__body {
+  max-width: 720px;
+  margin: 0 auto;
+  text-align: left;
+}
+
+.our-story__label {
+  font-family: var(--font-primary, 'Montserrat', sans-serif);
+  color: var(--color-gold);
+  font-size: 1rem;
+  font-weight: 600;
+  letter-spacing: 2px;
+  text-transform: uppercase;
+  margin: 0;
+}
+
+.our-story__title {
+  font-family: var(--font-primary, var(--font-serif));
+  font-weight: 500;
+  font-size: 2.6rem;
+  line-height: 1.18;
+  letter-spacing: 0.01em;
+  color: #1A1A1A;
+  margin: 12px 0 16px 0;
+}
+
+.our-story__tagline {
+  font-family: var(--font-serif);
+  font-style: italic;
+  font-weight: 500;
+  font-size: 1.4rem;
+  line-height: 1.5;
+  color: #B08D2A;
+  text-align: left;
+  margin: 0 0 32px 0;
+}
+
+.our-story__paragraph {
+  font-family: var(--font-primary, var(--font-sans));
+  font-size: 19px;
+  line-height: 1.85;
+  color: #3A3A3A;
+  text-align: left;
+  margin: 0 0 24px;
+}
+
+.our-story__paragraph:last-child {
+  margin-bottom: 0;
+}
+
+@media (max-width: 560px) {
+  .our-story__title {
+    font-size: 32px;
+  }
+
+  .our-story__paragraph {
+    font-size: 17px;
+  }
+}
+
+/* ==========================================================================
    4. TICKER BANNER RIBBON
    ========================================================================== */
 .ticker {
   background: var(--color-cream);
   border-block: 1px solid rgba(212, 175, 55, 0.28);
+  text-align: center;
 }
 
 .ticker__inner {
@@ -1534,7 +1612,7 @@ body:not(.admin-page) select {
 }
 
 /* ==========================================================================
-   9. THE LURÉI LEGACY — brand story
+   9. THE LUREÍ LEGACY — brand story
    Palette: Nude Beige #FAF8F5 | Charcoal #1A1A1A | Gold #D4AF37 | Ivory #FFFFFF
    ========================================================================== */
 .legacy__bar {

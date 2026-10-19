@@ -6310,7 +6310,7 @@ Thank you!`;
   );
 
   if (gcCards.length && gcPreviewCard) {
-    let gcAmount = 50;
+    let gcAmount = 100;
     let gcCustom = false;
 
     const gcAmountDisplay = () =>
