@@ -3977,7 +3977,10 @@ const stockLabelFor = (count) => `STOCK ${count} LEFT`;
     media.className = "product-card__media";
 
     /* One path for every card: wireImage() slugifies the name when there is no
-       stored image, and the onerror net catches anything that still 404s. */
+       stored image, and the onerror net catches anything that still 404s.
+       Grid cards ALWAYS render only the primary cover (images[0]/image) — no
+       hover flip, no auto carousel; the multi-angle gallery lives solely in
+       Quick View and the lightbox modal. */
     const img = document.createElement("img");
     img.alt = product.title;
     img.width = 500;
@@ -3991,60 +3994,6 @@ const stockLabelFor = (count) => `STOCK ${count} LEFT`;
       img.replaceWith(buildPlaceholder("product-card__placeholder", product))
     );
     media.appendChild(img);
-
-    /* Multi-angle card gallery: with more than one stored photo the media box
-       gets a hidden secondary angle (revealed on hover) and thumbnail dots.
-       Clicking a dot swaps the main photo by hand; afterwards CSS hover no
-       longer overrides what the shopper picked. */
-    const gallery = [];
-    if (Array.isArray(product.images)) {
-      product.images.forEach((value) => {
-        const src = typeof value === "string" ? value.trim() : "";
-        if (src && gallery.indexOf(src) === -1) gallery.push(src);
-      });
-    }
-    if (typeof product.image === "string" && product.image.trim()) {
-      const primary = product.image.trim();
-      if (gallery.indexOf(primary) === -1) gallery.unshift(primary);
-    }
-
-    if (gallery.length > 1) {
-      media.classList.add("has-gallery");
-
-      const alt = document.createElement("img");
-      alt.className = "product-card__img product-card__img--alt";
-      alt.alt = "";
-      alt.width = 500;
-      alt.height = 500;
-      alt.loading = "lazy";
-      alt.decoding = "async";
-      wireImage(alt, { image: gallery[1], title: product.title }, () => {
-        alt.remove();
-        media.classList.remove("has-gallery");
-      });
-      media.appendChild(alt);
-
-      const dots = document.createElement("div");
-      dots.className = "product-card__dots";
-      gallery.slice(0, 6).forEach((src, i) => {
-        const dot = document.createElement("button");
-        dot.type = "button";
-        dot.className = "product-card__dot" + (i === 0 ? " is-on" : "");
-        dot.title = "View angle " + (i + 1);
-        dot.setAttribute("aria-label", "View angle " + (i + 1) + " of " + product.title);
-        dot.addEventListener("click", (event) => {
-          event.preventDefault();
-          event.stopPropagation();
-          media.classList.add("is-gallery-picked");
-          dots.querySelectorAll(".product-card__dot").forEach((other) => {
-            other.classList.toggle("is-on", other === dot);
-          });
-          wireImage(img, { image: src, title: product.title }, () => {});
-        });
-        dots.appendChild(dot);
-      });
-      media.appendChild(dots);
-    }
 
     const badge = product.badge ? String(product.badge).trim() : null;
     if (badge) {
@@ -4306,11 +4255,13 @@ const stockLabelFor = (count) => `STOCK ${count} LEFT`;
   }
 
   /* Delegated open for the full-screen viewer. Three triggers share it:
-     · the product card's expand badge,
-     · the Quick View modal's expand badge,
-     · the Quick View modal's main photo (tapping it whole).
-     Card and Quick View triggers also hand the full angle gallery to
-     openLightbox() so the viewer becomes multi-angle too. */
+      · the product card's expand badge,
+      · the Quick View modal's expand badge,
+      · the Quick View modal's main photo (tapping it whole).
+      Only the Quick View triggers hand the full angle gallery to
+      openLightbox(): multi-angle browsing lives solely inside the
+      Product Detail / Quick-View modal, so a card-triggered viewer shows
+      the primary cover alone — identical to the grid card itself. */
   document.addEventListener("click", (event) => {
     const cardExpand = event.target.closest(".product-card__expand");
     const quickExpand = event.target.closest(".quickview__expand");
@@ -4321,20 +4272,11 @@ const stockLabelFor = (count) => `STOCK ${count} LEFT`;
     let gallery = null;
 
     if (cardExpand) {
+      /* Catalog grid cards stay single-image end to end: no gallery lookup
+         here, so the lightbox opened from the grid can never become a
+         multi-angle viewer. Quick View owns angle switching. */
       const media = cardExpand.closest(".product-card__media");
       img = media ? media.querySelector("img") : null;
-      const card = cardExpand.closest(".product-card");
-      if (card && card.dataset.productId) {
-        try {
-          const api = window.LureiCatalogue;
-          const product = api
-            ? api.store.read().find((item) => String(item.id) === String(card.dataset.productId))
-            : null;
-          if (product) gallery = quickViewGalleryFor(product);
-        } catch (error) {
-          gallery = null;
-        }
-      }
     } else if (quickImg) {
       img = quickImg;
     } else {

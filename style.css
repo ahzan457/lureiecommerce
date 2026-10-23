@@ -1,6 +1,6 @@
-/* ==========================================================================
-   LUREÍ — Fine Jewellery & Accessories | Dubai, UAE
-   Ultra-luxury e-commerce homepage — reference wireframe match
+﻿/* ==========================================================================
+   LUREÃ â€” Fine Jewellery & Accessories | Dubai, UAE
+   Ultra-luxury e-commerce homepage â€” reference wireframe match
    ========================================================================== */
 
 @import url('https://fonts.googleapis.com/css2?family=Montserrat:wght@400;500;600&display=swap');
@@ -63,7 +63,7 @@ body:not(.admin-page) {
   overflow-x: hidden;
 }
 
-/* GPU-accelerated rendering — promote major sections & containers onto
+/* GPU-accelerated rendering â€” promote major sections & containers onto
    their own compositor layers for paint-free, stutter-free scrolling. */
 .container,
 .navbar,
@@ -115,7 +115,7 @@ body:not(.admin-page) button {
   color: inherit;
 }
 
-/* Fluid, silky hover transitions — transform/opacity only for movement
+/* Fluid, silky hover transitions â€” transform/opacity only for movement
    (compositor-friendly), with short paint-only passes for colour states.
    Layout properties (width/height/margin/top) are never animated. */
 body:not(.admin-page) a,
@@ -508,7 +508,7 @@ body:not(.admin-page) .brand__accent {
   box-shadow: 0 24px 46px -18px rgba(156, 114, 58, 0.65);
 }
 
-/* Explicit invoice download CTA inside the Order Placed panel — a real
+/* Explicit invoice download CTA inside the Order Placed panel â€” a real
    user-initiated gesture, styled as the primary luxury gold action. */
 .primary-btn {
   display: inline-flex;
@@ -641,7 +641,7 @@ body:not(.admin-page) .brand__accent {
   filter: drop-shadow(0 26px 40px rgba(26, 26, 26, 0.18));
 }
 
-/* Hero right — The LUREÍ Legacy story card (unused in markup; kept rectangular
+/* Hero right â€” The LUREÃ Legacy story card (unused in markup; kept rectangular
    to match the other panels) */
 .hero__legacy {
   width: min(420px, 82%);
@@ -723,7 +723,7 @@ body:not(.admin-page) .brand__accent {
 }
 
 /* ==========================================================================
-   THE LUREÍ LEGACY — brand editorial
+   THE LUREÃ LEGACY â€” brand editorial
    ========================================================================== */
 .legacy-editorial {
   background: #FAF8F5;
@@ -843,7 +843,7 @@ body:not(.admin-page) .legacy-editorial__visual img {
 }
 
 /* ==========================================================================
-   OUR STORY — About Us / brand story (about.html)
+   OUR STORY â€” About Us / brand story (about.html)
    Centered quiet-luxury composition: centered gold eyebrow + serif heading,
    with a left-aligned 720px column for the tagline and body copy.
    ========================================================================== */
@@ -1197,7 +1197,7 @@ body:not(.admin-page) .cat-card__media img {
   gap: 0.6rem;
 }
 
-/* Product search + price filter — force luxury font inheritance */
+/* Product search + price filter â€” force luxury font inheritance */
 body:not(.admin-page) .collection-search__input,
 body:not(.admin-page) .collection-price__select,
 body:not(.admin-page) .collection-price__label,
@@ -1491,7 +1491,7 @@ body:not(.admin-page) select {
   outline-offset: 3px;
 }
 
-/* Just In — the homepage rail for pieces published from Admin.
+/* Just In â€” the homepage rail for pieces published from Admin.
    It sits on the same warm ivory ground as the New In rail and reuses
    .products__grid for the columns, so an admin upload lands in the exact
    template a shopper already knows. The hairline keeps it reading as its own
@@ -1531,7 +1531,7 @@ body:not(.admin-page) select {
 }
 
 /* ==========================================================================
-   8. BRAND PERKS — light luxury 4-card grid
+   8. BRAND PERKS â€” light luxury 4-card grid
    Palette: Nude Beige #FAF8F5 | Charcoal #1A1A1A | Gold #D4AF37 | Ivory #FFFFFF
    ========================================================================== */
 .lurei-brand-perks-section {
@@ -1612,7 +1612,7 @@ body:not(.admin-page) select {
 }
 
 /* ==========================================================================
-   9. THE LUREÍ LEGACY — brand story
+   9. THE LUREÃ LEGACY â€” brand story
    Palette: Nude Beige #FAF8F5 | Charcoal #1A1A1A | Gold #D4AF37 | Ivory #FFFFFF
    ========================================================================== */
 .legacy__bar {
@@ -2077,7 +2077,7 @@ body:not(.admin-page) select {
   transform: scale(1.08);
 }
 
-/* Newsletter form — Name + Email luxury stacked fields */
+/* Newsletter form â€” Name + Email luxury stacked fields */
 .newsletter-form {
   display: flex;
   flex-direction: column;
@@ -2215,7 +2215,7 @@ body:not(.admin-page) select {
   gap: 0.6rem;
 }
 
-/* Circular badge — a subtle hairline ink ring on the footer's Warm Ivory
+/* Circular badge â€” a subtle hairline ink ring on the footer's Warm Ivory
    (#FBF8F2) background. 42px outer minus the 1px border (border-box) leaves a
    40px content box, so the 22px logo sits with ~9px clearance per side.
    The resting border is ink, not gold, so the gold hover has a real
@@ -2762,7 +2762,7 @@ box-shadow: -28px 0 70px -30px rgba(26, 26, 26, 0.4);
 }
 
 /* ==========================================================================
-   WISHLIST — heart buttons, badge & slide-out drawer
+   WISHLIST â€” heart buttons, badge & slide-out drawer
    ========================================================================== */
 .wishlist-heart {
   position: absolute;
@@ -3054,7 +3054,7 @@ box-shadow: -28px 0 70px -30px rgba(26, 26, 26, 0.4);
 }
 
 /* ==========================================================================
-   NEW IN — Autumn Vault arrivals
+   NEW IN â€” Autumn Vault arrivals
    ========================================================================== */
 .new-in {
   background: #FAF8F5;
@@ -3240,7 +3240,7 @@ box-shadow: -28px 0 70px -30px rgba(26, 26, 26, 0.4);
   transition: width 0.8s cubic-bezier(0.22, 0.61, 0.36, 1);
 }
 
-/* Reuse the exact Collections "Add to Cart" button — only keep bottom alignment */
+/* Reuse the exact Collections "Add to Cart" button â€” only keep bottom alignment */
 .new-in-card .product-card__cta {
   margin-top: auto;
 }
@@ -3401,7 +3401,7 @@ body:not(.admin-page) .field__input:focus {
 }
 
 /* ==========================================================================
-   CONTACT PAGE — centered luxury inquiry form
+   CONTACT PAGE â€” centered luxury inquiry form
    ========================================================================== */
 .contact-form__wrapper {
   max-width: 680px;
@@ -3596,7 +3596,7 @@ body:not(.admin-page) input[type="date"].field__input::-webkit-calendar-picker-i
   }
 }
 /* ==========================================================================
-   11. GIFT CARDS — luxury experience
+   11. GIFT CARDS â€” luxury experience
    Palette: Cream #FDFBF7 | Warm Ivory #F9F6F0 | Charcoal #1A1A1A | Gold #D4AF37
    ========================================================================== */
 .gc-hero {
@@ -3780,7 +3780,7 @@ body:not(.admin-page) input[type="date"].field__input::-webkit-calendar-picker-i
   color: #9A9389;
 }
 
-/* Preview theme variants — one per tier, synced by gcSelectCard. */
+/* Preview theme variants â€” one per tier, synced by gcSelectCard. */
 .gc-preview__card.is-silver {
   background: linear-gradient(135deg, #e6e8eb 0%, #ffffff 50%, #d1d5db 100%);
 }
@@ -4230,7 +4230,7 @@ body:not(.admin-page) input[type="date"].field__input::-webkit-calendar-picker-i
 }
 
 /* ==========================================================================
-   13. Account auth — Google One-Tap + Auth Modal + profile badge
+   13. Account auth â€” Google One-Tap + Auth Modal + profile badge
        Cream & Champagne-Gold theme (site-matching)
    ========================================================================== */
 .auth-modal {
@@ -4564,7 +4564,7 @@ body:not(.admin-page) input[type="date"].field__input::-webkit-calendar-picker-i
   color: #FFFFFF;
 }
 
-/* Admin preview badge — champagne "A". Same gold family as the shopper
+/* Admin preview badge â€” champagne "A". Same gold family as the shopper
    initials badge, one step deeper and slightly larger so it reads as a
    distinct state rather than another customer's initials. */
 .nav-profile__badge--admin {
@@ -4580,7 +4580,7 @@ body:not(.admin-page) input[type="date"].field__input::-webkit-calendar-picker-i
   padding-top: 0;
 }
 
-/* Role line under the Administrator name — same small-caps treatment as
+/* Role line under the Administrator name â€” same small-caps treatment as
    the rest of the palette, so the card needs no extra chrome. */
 .nav-profile__menu-role {
   font-family: 'Cormorant Garamond', 'Playfair Display', Georgia, serif;
@@ -4629,7 +4629,7 @@ body:not(.admin-page) input[type="date"].field__input::-webkit-calendar-picker-i
 }
 
 /* ==========================================================================
-   14. Login / Signup page — Cream & Champagne-Gold theme (site-matching)
+   14. Login / Signup page â€” Cream & Champagne-Gold theme (site-matching)
        (scoped to .login-page)
    ========================================================================== */
 .login-page {
@@ -5000,7 +5000,7 @@ body:not(.admin-page) input[type="date"].field__input::-webkit-calendar-picker-i
    ========================================================================== */
 
 /* =====================================================================
- * LUREÍ — Live Storefront Editor
+ * LUREÃ â€” Live Storefront Editor
  * ---------------------------------------------------------------------
  * Loaded alongside the storefront on the catalogue pages. Every selector is
  * namespaced under `lurei-` so nothing here can reach the existing product
@@ -5856,7 +5856,7 @@ body.lurei-modal-open {
  * 11. Touch devices
  *
  * The quick actions are revealed on hover, which a touch screen never
- * produces — they would be unreachable. Always show them instead.
+ * produces â€” they would be unreachable. Always show them instead.
  * ------------------------------------------------------------------ */
 @media (hover: none), (max-width: 640px) {
   .lurei-card-tools {
@@ -5899,7 +5899,7 @@ body.lurei-modal-open {
 }
 
 /* ==========================================================================
-   13. RESPONSIVE LAYER — additive small-screen fixes
+   13. RESPONSIVE LAYER â€” additive small-screen fixes
    Desktop-first: every rule below only applies under the stated max-width,
    so desktop rendering is untouched. No existing rule above was modified.
    ========================================================================== */
@@ -5961,7 +5961,7 @@ body.lurei-modal-open {
 }
 
 /* ==========================================================================
-   Order delivery status badges — admin dashboard toggle (PENDING / DELIVERED)
+   Order delivery status badges â€” admin dashboard toggle (PENDING / DELIVERED)
    Gold = awaiting dispatch, luxury green = delivered. The transition keeps
    the toggle feeling silky rather than snapping between states.
    ========================================================================== */
@@ -6012,7 +6012,7 @@ body.lurei-modal-open {
 }
 
 /* ==========================================================================
-   Product image lightbox — expand trigger + fullscreen viewer
+   Product image lightbox â€” expand trigger + fullscreen viewer
    ========================================================================== */
 .product-card__expand {
   /* Pure overlay: taken out of flow so it can never add to, or shrink, the
@@ -6174,7 +6174,7 @@ body.lightbox-open {
 }
 
 /* ==========================================================================
-   Product Quick View modal — quiet-luxury detail overlay
+   Product Quick View modal â€” quiet-luxury detail overlay
    ========================================================================== */
 .quickview-overlay {
   position: fixed;
@@ -6585,86 +6585,16 @@ body.lightbox-open {
 
 /* ==========================================================================
    Multi-angle product imagery (added)
-   1) Storefront card gallery — hover second angle + selector dots
-   2) Edit-mode "+" angle upload panel (on-card)
-   3) Add/Edit modal — "+ Add Angle / Extra Photo" button + URL row
-   4) Full-screen lightbox — gallery thumbnail strip
+   Per spec: catalog grid cards ALWAYS show only the primary cover image â€”
+   no hover flip, no card dots, no automatic switching. The interactive
+   multi-angle gallery lives ONLY in Quick View and the lightbox modal
+   (main enlarged image + clickable thumbnails beneath it).
+   1) Edit-mode "+" angle upload panel (on-card, admin only)
+   2) Add/Edit modal â€” "+ Add Angle / Extra Photo" button + URL row
+   3) Full-screen lightbox â€” gallery thumbnail strip
    ========================================================================== */
 
-/* ---- 1. Storefront card gallery ---------------------------------------- */
-/* The hidden second angle sits over the card lead shot and fades in on
-   hover. The .is-gallery-picked state (set when the shopper taps a dot)
-   suppresses the hover swap so their choice stays put. */
-.product-card__img--alt {
-  position: absolute;
-  inset: 0;
-  z-index: 1;
-  opacity: 0;
-}
-
-.product-card__media.has-gallery:hover .product-card__img--alt {
-  opacity: 1;
-}
-
-.product-card__media.is-gallery-picked .product-card__img--alt {
-  opacity: 0;
-}
-
-.product-card__dots {
-  position: absolute;
-  left: 50%;
-  bottom: 10px;
-  z-index: 6;
-  display: flex;
-  gap: 7px;
-  padding: 5px 9px;
-  border-radius: 999px;
-  background: rgba(17, 15, 12, 0.42);
-  -webkit-backdrop-filter: blur(4px);
-  backdrop-filter: blur(4px);
-  opacity: 0;
-  transform: translateX(-50%) translateY(6px);
-  transition: opacity 0.25s ease, transform 0.25s ease;
-}
-
-.product-card__media.has-gallery:hover .product-card__dots,
-.product-card__media.has-gallery:focus-within .product-card__dots,
-.product-card__media.has-gallery.is-gallery-picked .product-card__dots {
-  opacity: 1;
-  transform: translateX(-50%) translateY(0);
-}
-
-/* Touch devices have no hover: keep the selector reachable and visible. */
-@media (hover: none), (pointer: coarse) {
-  .product-card__media.has-gallery .product-card__dots {
-    opacity: 1;
-    transform: translateX(-50%);
-  }
-}
-
-.product-card__dot {
-  width: 7px;
-  height: 7px;
-  padding: 0;
-  border: 0;
-  border-radius: 50%;
-  background: rgba(250, 248, 245, 0.55);
-  cursor: pointer;
-  touch-action: manipulation;
-  transition: var(--transition);
-}
-
-.product-card__dot.is-on {
-  background: #D4AF37;
-  box-shadow: 0 0 0 2px rgba(212, 175, 55, 0.28);
-}
-
-.product-card__dot:focus-visible {
-  outline: 2px solid var(--color-gold);
-  outline-offset: 1px;
-}
-
-/* ---- 2. Edit-mode "+" angle upload panel ------------------------------- */
+/* ---- 1. Edit-mode "+" angle upload panel ------------------------------- */
 .lurei-angle__thumbs {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(54px, 1fr));
@@ -6741,7 +6671,7 @@ body.lightbox-open {
   flex-wrap: wrap;
 }
 
-/* ---- 3. Add/Edit modal extras ------------------------------------------ */
+/* ---- 2. Add/Edit modal extras ------------------------------------------ */
 .lurei-upload__more {
   margin-top: 6px;
   justify-self: center;
@@ -6809,7 +6739,7 @@ body.lightbox-open {
   color: #B08D3E;
 }
 
-/* ---- 4. Lightbox gallery strip ------------------------------------------ */
+/* ---- 3. Lightbox gallery strip ------------------------------------------ */
 .lightbox__thumbs {
   position: fixed;
   left: 50%;
@@ -6868,3 +6798,4 @@ body.lightbox-open {
   outline: 2px solid var(--color-gold);
   outline-offset: 1px;
 }
+
