@@ -1986,6 +1986,11 @@
       const catalogue = window.LureiCatalogue || null;
       const editorLaunch = document.getElementById("editor-launch");
 
+      /* Both query parameters are mandatory: editMode=true opens the editor and
+         _ts guarantees the browser fetches a fresh storefront document. */
+      const buildEditStorefrontUrl = () =>
+        'collections.html?editMode=true&_ts=' + Date.now();
+
       /* The dashboard is never the editor itself, so any edit-session flag that
          survived an earlier storefront visit is dropped here. That keeps a
          "View Store" tab (even one opened by middle-click, which bypasses the
@@ -1993,31 +1998,44 @@
       if (catalogue && typeof catalogue.exitEditMode === "function") {
         try { catalogue.exitEditMode(); } catch (error) {}
       }
+      try { sessionStorage.removeItem("lurei_admin_edit_active"); } catch (error) {}
+      try { sessionStorage.removeItem("is_admin_editing_mode"); } catch (error) {}
 
       /* "Edit Live Storefront" must land on a freshly fetched storefront, never
-         a cached or bfcached one: the click performs a real navigation to
-         ?editMode=true with a cache-buster instead of trusting the browser to
-         revalidate the same HTML. The stored flag is set first as a fallback
-         for private-mode storage, but the query string is what loads the
-         editor. */
+         a cached or bfcached one: the click performs a hard navigation to
+         ?editMode=true&_ts=<timestamp> instead of trusting the browser to
+         revalidate the same HTML. The stored flags are set first as a fallback
+         for private-mode storage, but the query string is what loads and
+         forces the editor. */
       if (editorLaunch) {
+        editorLaunch.setAttribute("href", buildEditStorefrontUrl());
         editorLaunch.addEventListener("click", (event) => {
           event.preventDefault();
           if (catalogue && typeof catalogue.enterEditMode === "function") {
             try { catalogue.enterEditMode(); } catch (error) {}
           }
-          window.location.href = "collections.html?editMode=true&_=" + Date.now();
+          /* The persistent admin-intent lock: written by the dashboard itself
+             so that script.js can force-restore the editor on collections.html
+             even when the ?editMode parameter or the referrer is lost. */
+          try { sessionStorage.setItem("is_admin_editing_mode", "true"); } catch (error) {}
+          try { sessionStorage.setItem("lurei_admin_edit_active", "true"); } catch (error) {}
+          window.location.href = buildEditStorefrontUrl();
         });
       }
 
-      /* "View Store" is a clean customer view: drop the edit flag and open the
-         storefront URL with no editMode parameter at all. */
+      /* "View Store" is a clean customer view: drop the edit flag and always
+         open the storefront URL with no editMode parameter at all, even if the
+         anchor markup is ever changed. */
       const storeLink = document.getElementById("store-link");
       if (storeLink) {
+        storeLink.setAttribute("href", "collections.html");
         storeLink.addEventListener("click", () => {
+          storeLink.setAttribute("href", "collections.html");
           if (catalogue && typeof catalogue.exitEditMode === "function") {
             try { catalogue.exitEditMode(); } catch (error) {}
           }
+          try { sessionStorage.removeItem("lurei_admin_edit_active"); } catch (error) {}
+          try { sessionStorage.removeItem("is_admin_editing_mode"); } catch (error) {}
         });
       }
 

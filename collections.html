@@ -423,5 +423,120 @@
 
 <!-- Scripts -->
   <script src="script.js"></script>
+
+  <!-- Explicit edit-mode bootstrap: the dashboard hands off with
+       ?editMode=true&_ts=<timestamp> AND the session flag
+       is_admin_editing_mode=true (written by the dashboard click itself).
+       When EITHER signal is present, the complete editor setup (top bar,
+       inline price editing, stock toggles, angle/photo stack, ADD NEW
+       PRODUCT modal) is force-mounted from scratch; if the ?editMode
+       parameter was stripped along the way it is written back onto the URL
+       first. script.js already attempts this on load; this is the guaranteed
+       second entry point, and it only runs when no editor bar was mounted. -->
+  <script>
+    (function () {
+      var hasEditModeParam = function () {
+        var search = String(window.location.search || "");
+        if (search.indexOf("editMode=true") !== -1) return true;
+
+        try {
+          return new URLSearchParams(search).get("editMode") === "true";
+        } catch (error) {
+          return false;
+        }
+      };
+
+      /* Tab-scoped admin edit-session flags (admin-dashboard.html sets both
+         on the Edit Live Storefront click). Equal in authority to the URL
+         parameter, and the only ones that survive a stripped query string. */
+      var isEditIntentFlagActive = function () {
+        try {
+          return sessionStorage.getItem("is_admin_editing_mode") === "true";
+        } catch (error) {
+          return false;
+        }
+      };
+
+      var isLegacyEditSessionActive = function () {
+        try {
+          return sessionStorage.getItem("lurei_admin_edit_active") === "true";
+        } catch (error) {
+          return false;
+        }
+      };
+
+      /* editMode is the load-bearing parameter: keep it intact and only add the
+         cache-buster when the dashboard hand-off is missing one. */
+      var ensureTimestamp = function () {
+        try {
+          var url = new URL(window.location.href);
+          if (url.searchParams.get("editMode") !== "true") return;
+          if (url.searchParams.has("_ts")) return;
+          url.searchParams.set("_ts", String(Date.now()));
+          window.history.replaceState({}, "", url.pathname + url.search + url.hash);
+        } catch (error) {}
+      };
+
+      /* Puts ?editMode=true&_ts=<timestamp> back onto the URL when it was
+         stripped, using the history API so there is no reload flash. */
+      var reappendEditModeParam = function () {
+        try {
+          var url = new URL(window.location.href);
+          url.searchParams.set("editMode", "true");
+          url.searchParams.set("_ts", String(Date.now()));
+          window.history.replaceState({}, "", url.pathname + url.search + url.hash);
+        } catch (error) {}
+      };
+
+      var forceMountEditor = function (catalogue) {
+        if (document.querySelector(".lurei-edit-bar")) return;
+
+        if (typeof catalogue.initEditModeFromUrl === "function") {
+          catalogue.initEditModeFromUrl();
+        } else if (typeof catalogue.enableEditMode === "function") {
+          catalogue.enableEditMode();
+        } else if (typeof catalogue.mountAdminControls === "function") {
+          catalogue.mountAdminControls({ force: true });
+        } else if (typeof catalogue.mount === "function") {
+          catalogue.mount({ force: true });
+        }
+      };
+
+      var boot = function () {
+        var catalogue = window.LureiCatalogue;
+        if (!catalogue) return;
+
+        /* Recover a lost editMode query from the tab-scoped admin session
+           (script.js rewrites the URL in place without a reload). */
+        if (
+          typeof catalogue.restoreEditModeFromSession === "function" &&
+          catalogue.restoreEditModeFromSession()
+        ) {
+          return;
+        }
+
+        /* On page load, edit mode is requested by the URL OR by one of the
+           admin edit-session flags. Any one of them must always produce the
+           editor: top banner, + ADD NEW PRODUCT fab and the per-card tools. */
+        var viaUrl = hasEditModeParam();
+        var viaSession = isEditIntentFlagActive() || isLegacyEditSessionActive();
+        if (!viaUrl && !viaSession) return;
+
+        if (viaUrl) {
+          ensureTimestamp();
+        } else {
+          reappendEditModeParam();
+        }
+
+        forceMountEditor(catalogue);
+      };
+
+      if (document.readyState === "loading") {
+        document.addEventListener("DOMContentLoaded", boot);
+      } else {
+        boot();
+      }
+    })();
+  </script>
 </body>
 </html>

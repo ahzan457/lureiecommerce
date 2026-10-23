@@ -553,14 +553,33 @@
   "use strict";
 
   var MASTER_STORAGE_KEY = "lurei_products";
+  var STORE_META_KEY = "lurei_products__meta";
+  var STORE_CHUNK_PREFIX = "lurei_products__chunk_";
+  var STORE_VERSION = 2;
+  var STORE_CHUNK_BYTES = 256 * 1024;
   var EDIT_MODE_STORAGE_KEY = "lurei_admin_editing";
+  var EDIT_SESSION_STORAGE_KEY = "lurei_admin_edit_active";
+  /* The dashboard writes this literal key itself (see admin-dashboard.html);
+     script.js treats it as one of the equal "admin intent" signals so the
+     edit session can always be restored even after the query string or the
+     referrer is lost. */
+  var ADMIN_INTENT_SESSION_KEY = "is_admin_editing_mode";
 
-  /* localStorage is roughly 5MB per origin and a handful of phone photos
-     will blow through it, so uploads are downscaled and the total serialised
-     size is checked before anything is written. */
-  var MAX_UPLOAD_BYTES = 4 * 1024 * 1024;
-  var MAX_IMAGE_EDGE = 900;
-  var IMAGE_QUALITY = 0.82;
+  /* A full-resolution phone photo is several megabytes of Base64 and would
+     fill localStorage on its own. Every upload is therefore redrawn onto a
+     canvas and encoded as HD WebP, aiming for the 50KB-80KB sweet spot that
+     keeps jewellery edges crisp without inflating the catalogue payload. */
+  var MAX_IMAGE_EDGE = 1200;
+  var ULTRA_LIGHT_IMAGE_EDGE = 640;
+  var IMAGE_QUALITY = 0.8;
+  var IMAGE_TARGET_MIN_BYTES = 50 * 1024;
+  var IMAGE_TARGET_MAX_BYTES = 80 * 1024;
+  var IMAGE_MIN_QUALITY = 0.6;
+  var IMAGE_ULTRA_QUALITY = 0.45;
+
+  /* Legacy export retained for callers that still read maxBytes. Storage is
+     now chunked, so there is no single-string ceiling to enforce. */
+  var MAX_UPLOAD_BYTES = STORE_CHUNK_BYTES;
 
   var CATEGORIES = [
     { value: "earrings", label: "Earrings" },
@@ -660,12 +679,55 @@
     }
   };
 
+  var readSessionFlag = function (key) {
+    try {
+      return sessionStorage.getItem(key);
+    } catch (error) {
+      return null;
+    }
+  };
+
+  var writeSessionFlag = function (key, value) {
+    try {
+      sessionStorage.setItem(key, value);
+      return true;
+    } catch (error) {
+      return false;
+    }
+  };
+
+  var removeSessionFlag = function (key) {
+    try {
+      sessionStorage.removeItem(key);
+    } catch (error) {
+      /* private mode: there is nothing to clear */
+    }
+  };
+
   var isEditModeRequested = function () {
     return readFlag(EDIT_MODE_STORAGE_KEY) === "true";
   };
 
+  var isEditSessionActive = function () {
+    return readSessionFlag(EDIT_SESSION_STORAGE_KEY) === "true";
+  };
+
+  /* The dashboard's literal hand-off flag. Equal in authority to the URL
+     parameter: if EITHER is present this tab is an admin edit session. */
+  var isEditIntentActive = function () {
+    return readSessionFlag(ADMIN_INTENT_SESSION_KEY) === "true";
+  };
+
   var enterEditMode = function () {
-    return writeFlag(EDIT_MODE_STORAGE_KEY, "true");
+    /* The localStorage flag survives a reload; both sessionStorage flags are
+       tab-scoped fallbacks that let collections.html restore editMode=true
+       even after a redirect strips the query string. The dashboard writes
+       ADMIN_INTENT_SESSION_KEY itself before navigating; writing it here too
+       keeps a refresh (or EXIT round-trip) from ever losing the intent. */
+    var persisted = writeFlag(EDIT_MODE_STORAGE_KEY, "true");
+    writeSessionFlag(EDIT_SESSION_STORAGE_KEY, "true");
+    writeSessionFlag(ADMIN_INTENT_SESSION_KEY, "true");
+    return persisted || isEditSessionActive();
   };
 
   var exitEditMode = function () {
@@ -674,6 +736,8 @@
     } catch (error) {
       /* private mode: the query string still ends the session on reload */
     }
+    removeSessionFlag(EDIT_SESSION_STORAGE_KEY);
+    removeSessionFlag(ADMIN_INTENT_SESSION_KEY);
   };
 
   /* Once Supabase is configured the flag alone is not authority enough —
@@ -798,6 +862,16 @@
     product.type = String(raw.type || "").trim() || "earrings";
     product.image = sanitizeImage(raw.image);
     product.images = sanitizeImages(raw.images);
+
+    /* Multi-angle schema: the gallery is the canonical photo list. A legacy
+       product carrying only a single `image` string automatically loads as
+       images[0], and a saved gallery always claims the primary slot so the
+       two fields can never disagree after an upgrade. */
+    if (product.images.length) {
+      product.image = product.images[0];
+    } else if (product.image) {
+      product.images = [product.image];
+    }
     product.description = String(raw.description || raw.desc || "").trim();
     product.badge = raw.badge ? String(raw.badge).trim() : "";
     product.stock = stockFor(raw.stock);
@@ -812,13 +886,111 @@
     return !!product.title && product.price !== null && product.price > 0;
   };
 
-  var readStore = function () {
-    var parsed;
+  /* ------------------------------------------------------------------ *
+   * Chunked catalogue persistence
+   * ------------------------------------------------------------------ *
+   * A single JSON string collapses as soon as the catalogue grows past a
+   * handful of Base64 photos. The store is therefore split into small,
+   * independently written chunks behind one tiny metadata record. A failed
+   * chunk write can never corrupt the previously committed generation, and
+   * an IndexedDB mirror carries the full payload when localStorage quota is
+   * exhausted (1000+ products with images comfortably exceed the ~5MB limit).
+   * ------------------------------------------------------------------ */
+
+  var transientStore = null;
+  var cachedLocalEnvelope = null;
+
+  var parseStoredJSON = function (value, fallback) {
     try {
-      parsed = JSON.parse(readFlag(MASTER_STORAGE_KEY) || "null");
+      return JSON.parse(value);
     } catch (error) {
-      return { version: 1, products: [], removed: [] };
+      return fallback;
     }
+  };
+
+  var readStoreMeta = function () {
+    var meta = parseStoredJSON(readFlag(STORE_META_KEY), null);
+    if (!isPlainProduct(meta) || meta.chunked !== true || !meta.generation) return null;
+    var count = Number(meta.chunkCount);
+    if (!isFinite(count) || count < 0) return null;
+    return meta;
+  };
+
+  var chunkKeyFor = function (generation, index) {
+    return STORE_CHUNK_PREFIX + String(generation) + "__" + String(index);
+  };
+
+  var readChunkedPayload = function (meta) {
+    var count = Math.floor(Number(meta.chunkCount) || 0);
+    var products = [];
+
+    for (var index = 0; index < count; index++) {
+      var raw = readFlag(chunkKeyFor(meta.generation, index));
+      if (raw === null) return null;
+
+      var chunk = parseStoredJSON(raw, null);
+      if (!Array.isArray(chunk)) return null;
+      products = products.concat(chunk);
+    }
+
+    return {
+      version: STORE_VERSION,
+      products: products,
+      removed: Array.isArray(meta.removed) ? meta.removed.map(String) : [],
+    };
+  };
+
+  var readLocalEnvelope = function () {
+    var meta = readStoreMeta();
+    if (meta) {
+      var updatedAt = Number(meta.updatedAt) || 0;
+      if (
+        cachedLocalEnvelope &&
+        cachedLocalEnvelope.generation === meta.generation &&
+        cachedLocalEnvelope.updatedAt === updatedAt
+      ) {
+        return cachedLocalEnvelope;
+      }
+
+      var chunked = readChunkedPayload(meta);
+      if (chunked) {
+        cachedLocalEnvelope = {
+          payload: chunked,
+          updatedAt: updatedAt,
+          generation: meta.generation,
+        };
+        return cachedLocalEnvelope;
+      }
+    }
+
+    /* One-time migration path: an older build wrote the whole store (or a
+       bare product array) under a single key. It stays readable until the
+       first chunked save replaces it. */
+    return {
+      payload: parseStoredJSON(readFlag(MASTER_STORAGE_KEY), null),
+      updatedAt: 0,
+    };
+  };
+
+  var readEnvelope = function () {
+    var local = readLocalEnvelope();
+    if (transientStore && transientStore.updatedAt > local.updatedAt) {
+      return transientStore;
+    }
+    return local;
+  };
+
+  var isMasterStorageKey = function (key) {
+    if (key === null || key === undefined) return true;
+    return (
+      key === MASTER_STORAGE_KEY ||
+      key === STORE_META_KEY ||
+      key.indexOf(STORE_CHUNK_PREFIX) === 0
+    );
+  };
+
+  var readStore = function () {
+    var parsed = readEnvelope().payload;
 
     /* Tolerate a bare array from an earlier build. */
     if (Array.isArray(parsed)) {
@@ -840,27 +1012,291 @@
     };
   };
 
-  var writeStore = function (store) {
-    var payload = {
-      version: 1,
-      products: store.products,
-      removed: store.removed,
-    };
+  var buildChunks = function (products) {
+    var chunks = [];
+    var current = [];
+    var bytes = 2;
 
-    if (JSON.stringify(payload).length > MAX_UPLOAD_BYTES) {
-      throw new Error(
-        "The catalogue is too large to save. Remove an image or two and try again."
-      );
+    (Array.isArray(products) ? products : []).forEach(function (product) {
+      var size = 0;
+      try {
+        size = JSON.stringify(product).length + 1;
+      } catch (error) {
+        size = 1024;
+      }
+
+      if (current.length && bytes + size > STORE_CHUNK_BYTES) {
+        chunks.push(current);
+        current = [];
+        bytes = 2;
+      }
+
+      current.push(product);
+      bytes += size;
+    });
+
+    if (current.length || !chunks.length) chunks.push(current);
+    return chunks;
+  };
+
+  var cleanupChunkGenerations = function (activeGeneration, previousGeneration) {
+    try {
+      var now = Date.now();
+      var graceMs = 10 * 60 * 1000;
+      var stale = [];
+
+      for (var index = 0; index < localStorage.length; index++) {
+        var key = localStorage.key(index);
+        if (!key || key.indexOf(STORE_CHUNK_PREFIX) !== 0) continue;
+
+        var rest = key.slice(STORE_CHUNK_PREFIX.length);
+        var generation = rest.split("__")[0];
+        if (generation === String(activeGeneration)) continue;
+
+        var stamp = Number(String(generation).split("_")[0]) || 0;
+        if (generation === String(previousGeneration) || (stamp && now - stamp > graceMs)) {
+          stale.push(key);
+        }
+      }
+
+      stale.forEach(function (key) {
+        try {
+          localStorage.removeItem(key);
+        } catch (error) {}
+      });
+    } catch (error) {
+      /* Storage enumeration is best-effort; stale chunks are harmless. */
     }
+  };
+
+  var lastWriteStamp = 0;
+  var nextWriteStamp = function () {
+    var now = Date.now();
+    if (now <= lastWriteStamp) now = lastWriteStamp + 1;
+    lastWriteStamp = now;
+    return now;
+  };
+
+  var persistLocal = function (payload, updatedAt) {
+    var products = Array.isArray(payload.products) ? payload.products : [];
+    var removed = Array.isArray(payload.removed) ? payload.removed : [];
+    var chunks = buildChunks(products);
+    var generation = String(updatedAt) + "_" + Math.random().toString(36).slice(2, 8);
+    var meta = {
+      version: STORE_VERSION,
+      chunked: true,
+      generation: generation,
+      chunkCount: chunks.length,
+      productCount: products.length,
+      removed: removed,
+      updatedAt: updatedAt,
+    };
+    var written = [];
+    var saved = false;
+    var previousMeta = readStoreMeta();
+
+    if (updatedAt > lastWriteStamp) lastWriteStamp = updatedAt;
 
     try {
-      localStorage.setItem(MASTER_STORAGE_KEY, JSON.stringify(payload));
-      return true;
+      for (var index = 0; index < chunks.length; index++) {
+        var key = chunkKeyFor(generation, index);
+        localStorage.setItem(key, JSON.stringify(chunks[index]));
+        written.push(key);
+      }
+
+      localStorage.setItem(STORE_META_KEY, JSON.stringify(meta));
+      saved = true;
+      cachedLocalEnvelope = {
+        payload: payload,
+        updatedAt: updatedAt,
+        generation: generation,
+      };
+
+      cleanupChunkGenerations(generation, previousMeta && previousMeta.generation);
+
+      /* Reclaim the legacy monolithic key once the chunked generation is
+         committed. Its removal is optional, so a failure is ignored. */
+      try {
+        localStorage.removeItem(MASTER_STORAGE_KEY);
+      } catch (error) {}
     } catch (error) {
-      throw new Error(
-        "This browser is out of storage space, so the change was not saved. Free up some space and retry."
-      );
+      /* Quota/private-mode failure: undo this half-written generation so the
+         previous committed generation remains readable. */
+      written.forEach(function (key) {
+        try {
+          localStorage.removeItem(key);
+        } catch (removeError) {}
+      });
     }
+
+    /* Keep the newest payload available to this tab even when localStorage
+       refused it; IndexedDB is the durable fallback below. */
+    transientStore = { payload: payload, updatedAt: updatedAt };
+    return saved;
+  };
+
+  /* ------------------------------------------------------------------ *
+   * IndexedDB mirror (large catalogues beyond localStorage quota)
+   * ------------------------------------------------------------------ */
+
+  var idbPromise = null;
+
+  var openCatalogueDb = function () {
+    if (idbPromise) return idbPromise;
+
+    idbPromise = new Promise(function (resolve) {
+      if (typeof indexedDB === "undefined" || !indexedDB) {
+        resolve(null);
+        return;
+      }
+
+      try {
+        var request = indexedDB.open("lurei_catalogue", 1);
+
+        request.onupgradeneeded = function () {
+          var db = request.result;
+          if (!db.objectStoreNames.contains("catalogue")) {
+            db.createObjectStore("catalogue");
+          }
+        };
+        request.onsuccess = function () {
+          resolve(request.result);
+        };
+        request.onerror = function () {
+          resolve(null);
+        };
+        request.onblocked = function () {
+          resolve(null);
+        };
+      } catch (error) {
+        resolve(null);
+      }
+    });
+
+    return idbPromise;
+  };
+
+  var writeCatalogueDb = function (payload, updatedAt) {
+    openCatalogueDb()
+      .then(function (db) {
+        if (!db) return;
+        try {
+          var transaction = db.transaction("catalogue", "readwrite");
+          transaction.objectStore("catalogue").put(
+            { updatedAt: updatedAt, payload: payload },
+            "master"
+          );
+        } catch (error) {}
+      })
+      .catch(function () {});
+  };
+
+  var readCatalogueDb = function () {
+    return openCatalogueDb()
+      .then(function (db) {
+        if (!db) return null;
+
+        return new Promise(function (resolve) {
+          try {
+            var transaction = db.transaction("catalogue", "readonly");
+            var request = transaction.objectStore("catalogue").get("master");
+            request.onsuccess = function () {
+              resolve(request.result || null);
+            };
+            request.onerror = function () {
+              resolve(null);
+            };
+          } catch (error) {
+            resolve(null);
+          }
+        });
+      })
+      .catch(function () {
+        return null;
+      });
+  };
+
+  var idbWriteTimer = null;
+  var pendingIndexedDbWrite = null;
+
+  var flushIndexedDbWrite = function () {
+    if (!pendingIndexedDbWrite) return;
+    var record = pendingIndexedDbWrite;
+    pendingIndexedDbWrite = null;
+    clearTimeout(idbWriteTimer);
+    idbWriteTimer = null;
+    writeCatalogueDb(record.payload, record.updatedAt);
+  };
+
+  var scheduleIndexedDbWrite = function (payload, updatedAt, immediate) {
+    pendingIndexedDbWrite = { payload: payload, updatedAt: updatedAt };
+
+    if (immediate) {
+      flushIndexedDbWrite();
+      return;
+    }
+
+    clearTimeout(idbWriteTimer);
+    idbWriteTimer = setTimeout(flushIndexedDbWrite, 150);
+  };
+
+  /* Local storage may hold an older generation after a quota failure, so the
+     IndexedDB record is compared by timestamp and promoted when it is newer. */
+  var hydrateFromIndexedDb = function () {
+    readCatalogueDb()
+      .then(function (record) {
+        if (!record || !record.payload) return;
+
+        var stamp = Number(record.updatedAt) || 0;
+        var local = readLocalEnvelope();
+        var current = local.updatedAt;
+
+        if (transientStore && transientStore.updatedAt > current) {
+          current = transientStore.updatedAt;
+        }
+        if (stamp <= current) return;
+
+        persistLocal(record.payload, stamp);
+        notify();
+      })
+      .catch(function () {});
+  };
+
+  if (typeof window !== "undefined" && window.addEventListener) {
+    window.addEventListener("pagehide", flushIndexedDbWrite);
+  }
+
+  var catalogueChannel = null;
+  try {
+    if (typeof BroadcastChannel !== "undefined") {
+      catalogueChannel = new BroadcastChannel("lurei_catalogue_sync");
+      catalogueChannel.onmessage = function () {
+        setTimeout(hydrateFromIndexedDb, 300);
+      };
+    }
+  } catch (error) {}
+
+  var writeStore = function (store) {
+    var payload = {
+      version: STORE_VERSION,
+      products: Array.isArray(store.products) ? store.products : [],
+      removed: Array.isArray(store.removed) ? store.removed : [],
+    };
+    var updatedAt = nextWriteStamp();
+    var localSaved = persistLocal(payload, updatedAt);
+
+    /* localStorage is fast and synchronous; the mirror is debounced to keep
+       rapid stock/price edits responsive. A local quota failure is written to
+       IndexedDB immediately so nothing is lost. */
+    scheduleIndexedDbWrite(payload, updatedAt, !localSaved);
+
+    if (catalogueChannel) {
+      try {
+        catalogueChannel.postMessage({ updatedAt: updatedAt });
+      } catch (error) {}
+    }
+
+    return true;
   };
 
   /* An override only carries the fields the admin actually touched — a price
@@ -870,13 +1306,11 @@
    * corruption does not linger in localStorage across reloads. Detection reads
    * the raw payload because sanitize() has already erased the value in memory. */
   var repairStoredImages = function () {
-    var parsed;
-    try {
-      parsed = JSON.parse(readFlag(MASTER_STORAGE_KEY) || "null");
-    } catch (error) {
-      return false;
-    }
+    /* Chunked generations are written from sanitized products already; only
+       the legacy monolithic payload can still carry the dead folder. */
+    if (readStoreMeta()) return false;
 
+    var parsed = readEnvelope().payload;
     var entries = Array.isArray(parsed) ? parsed : parsed && parsed.products;
     if (!Array.isArray(entries)) return false;
 
@@ -1157,10 +1591,30 @@
 
     reset: function () {
       try {
-        localStorage.removeItem(MASTER_STORAGE_KEY);
+        var keys = [MASTER_STORAGE_KEY, STORE_META_KEY];
+
+        for (var index = 0; index < localStorage.length; index++) {
+          var key = localStorage.key(index);
+          if (key && key.indexOf(STORE_CHUNK_PREFIX) === 0) keys.push(key);
+        }
+
+        keys.forEach(function (key) {
+          try {
+            localStorage.removeItem(key);
+          } catch (removeError) {}
+        });
       } catch (error) {
         /* nothing to clear */
       }
+
+      cachedLocalEnvelope = null;
+      pendingIndexedDbWrite = null;
+      clearTimeout(idbWriteTimer);
+
+      /* Commit an empty generation instead of deleting IndexedDB: the new
+         timestamp makes the reset authoritative and removes any race with a
+         pending mirror write. */
+      writeStore({ products: [], removed: [] });
       notify();
       return true;
     },
@@ -1168,13 +1622,24 @@
 
   window.LureiCatalogue = {
     storageKey: MASTER_STORAGE_KEY,
+    metaStorageKey: STORE_META_KEY,
+    chunkKeyPrefix: STORE_CHUNK_PREFIX,
+    chunkBytes: STORE_CHUNK_BYTES,
+    isMasterStorageKey: isMasterStorageKey,
     editModeKey: EDIT_MODE_STORAGE_KEY,
+    editSessionKey: EDIT_SESSION_STORAGE_KEY,
+    adminIntentSessionKey: ADMIN_INTENT_SESSION_KEY,
     categories: CATEGORIES,
     resolveCategoryValue: resolveCategoryValue,
     createdCategories: readCreatedCategories,
     categorySuggestionLabels: categorySuggestionLabels,
     maxImageEdge: MAX_IMAGE_EDGE,
+    ultraLightImageEdge: ULTRA_LIGHT_IMAGE_EDGE,
     imageQuality: IMAGE_QUALITY,
+    imageMinQuality: IMAGE_MIN_QUALITY,
+    imageUltraQuality: IMAGE_ULTRA_QUALITY,
+    imageTargetMinBytes: IMAGE_TARGET_MIN_BYTES,
+    imageTargetMaxBytes: IMAGE_TARGET_MAX_BYTES,
     maxBytes: MAX_UPLOAD_BYTES,
     priceBucketFor: priceBucketFor,
     resolve: resolve,
@@ -1187,14 +1652,20 @@
     exitEditMode: exitEditMode,
     canEdit: mayEdit,
     isEditModeRequested: isEditModeRequested,
+    isEditSessionActive: isEditSessionActive,
+    isEditIntentActive: isEditIntentActive,
     shouldEdit: shouldEdit,
   };
 
   /* Any other tab on the site re-renders the moment the catalogue moves. */
   window.addEventListener("storage", function (event) {
-    if (event.key !== MASTER_STORAGE_KEY && event.key !== null) return;
+    if (!isMasterStorageKey(event.key)) return;
     notify();
   });
+
+  /* Promote a newer IndexedDB payload (e.g. saved after a localStorage quota
+     failure) as soon as the database is available. */
+  hydrateFromIndexedDb();
 })();
 
 /* =====================================================================
@@ -1222,10 +1693,19 @@
      entry is the card's primary image; the whole list ships as the product's
      gallery. */
   var pendingImages = [];
+  /* Which product's "+" angle panel is currently open (edit mode). Kept here
+     so decorate() can re-open the panel after a catalogue-wide rebuild. */
+  var angleId = null;
+  /* When the Edit Photos / Gallery button opens the modal, this holds the
+     product being edited; null means the modal is the add-product workflow. */
+  var modalTargetId = null;
   var observer = null;
   var unsubscribe = null;
-var mounted = false;
+  var mounted = false;
+  var barEl = null;
+  var fabEl = null;
   var lastFocus = null;
+  var REMOTE_SRC = /^(https?:|data:|\/\/)/i;
 
   var IMAGE_GLYPH =
     '<svg viewBox="0 0 24 24" width="26" height="26" fill="none" stroke="currentColor" ' +
@@ -1263,6 +1743,248 @@ var mounted = false;
     });
   };
 
+  /* Canonical gallery for the editor: stored images first, then the legacy
+     single image string, de-duplicated and order-stable. */
+  var productGallery = function (product) {
+    var out = [];
+    var add = function (value) {
+      if (typeof value !== "string") return;
+      var src = value.trim();
+      if (src && out.indexOf(src) === -1) out.push(src);
+    };
+    if (product) {
+      if (Array.isArray(product.images)) product.images.forEach(add);
+      add(product.image);
+    }
+    return out;
+  };
+
+  /* ---------------- On-card angle upload panel ---------------- */
+
+  var saveGallery = function (product, gallery, message) {
+    var patch = {
+      title: product.title,
+      price: product.price,
+      category: product.category,
+      type: product.type,
+      description: product.description,
+      stock: product.stock,
+      outOfStock: product.outOfStock === true,
+    };
+    if (!(gallery.length && typeof gallery[0] === "string" && gallery[0].trim() !== "")) {
+      patch.image = "";
+    } else {
+      patch.image = gallery[0].trim();
+    }
+    patch.images = gallery.slice();
+
+    try {
+      store.update(product.id, patch);
+      if (message) announce(message);
+      return true;
+    } catch (error) {
+      announce(error.message);
+      return false;
+    }
+  };
+
+  var appendGalleryImages = function (product, added) {
+    var current = byId(product.id);
+    if (!current) {
+      announce("That product is no longer in the catalogue.");
+      return false;
+    }
+    var gallery = productGallery(current);
+    var appended = 0;
+    (added || []).forEach(function (src) {
+      if (src && gallery.indexOf(src) === -1) {
+        gallery.push(src);
+        appended++;
+      }
+    });
+    if (!appended) {
+      announce("Those photos have already been uploaded for this catalogue entry.");
+      return false;
+    }
+    return saveGallery(
+      current,
+      gallery,
+      appended + (appended === 1 ? " photo added — HD WebP compressed." : " photos added — HD WebP compressed.")
+    );
+  };
+
+  var buildAnglePanel = function (product) {
+    var wrap = document.createElement("div");
+    wrap.className = "lurei-inline lurei-angle";
+    wrap.setAttribute("data-lurei-angle", String(product.id));
+
+    wrap.innerHTML =
+      '<div class="lurei-inline__head">PHOTOS &amp; ANGLES</div>' +
+      '<p class="lurei-modal__error" data-lurei-error hidden></p>' +
+      '<div class="lurei-angle__thumbs" data-lurei-angle-thumbs></div>' +
+      '<label class="lurei-field">' +
+        '<span class="lurei-field__label">Photo URL <span class="lurei-field__optional">optional</span></span>' +
+        '<input class="lurei-field__input" type="url" data-lurei-angle-url placeholder="Paste an image URL (https://...)" />' +
+      "</label>" +
+      '<div class="lurei-inline__actions lurei-angle__actions">' +
+        '<button class="lurei-btn lurei-btn--primary" type="button" data-lurei-angle-file>+ ADD ANGLE / EXTRA PHOTO</button>' +
+        '<button class="lurei-btn" type="button" data-lurei-angle-urladd>ADD URL</button>' +
+        '<button class="lurei-btn" type="button" data-lurei-angle-close>DONE</button>' +
+      "</div>" +
+      '<input class="lurei-angle__input" type="file" accept="image/*" multiple data-lurei-angle-input hidden />';
+
+    var thumbs = wrap.querySelector("[data-lurei-angle-thumbs]");
+    var fileInput = wrap.querySelector("[data-lurei-angle-input]");
+    var errorEl = wrap.querySelector("[data-lurei-error]");
+    var addFilesButton = wrap.querySelector("[data-lurei-angle-file]");
+    var addUrlButton = wrap.querySelector("[data-lurei-angle-urladd]");
+    var urlField = wrap.querySelector("[data-lurei-angle-url]");
+    var closeButton = wrap.querySelector("[data-lurei-angle-close]");
+
+    var showErrorMessage = function (error) {
+      var message = (error && error.message) || String(error);
+      if (errorEl) {
+        errorEl.textContent = message;
+        errorEl.hidden = false;
+      } else {
+        announce(message);
+      }
+    };
+
+    var renderThumbs = function () {
+      var current = byId(product.id);
+      var gallery = productGallery(current);
+      thumbs.replaceChildren();
+
+      gallery.forEach(function (src, index) {
+        var cell = document.createElement("div");
+        cell.className = "lurei-angle__thumb";
+
+        var img = document.createElement("img");
+        img.src = src;
+        img.alt = "";
+        img.decoding = "async";
+        cell.appendChild(img);
+
+        if (index === 0) {
+          var tag = document.createElement("span");
+          tag.className = "lurei-angle__main";
+          tag.textContent = "Main";
+          cell.appendChild(tag);
+        }
+
+        var remove = document.createElement("button");
+        remove.type = "button";
+        remove.className = "lurei-angle__remove";
+        remove.setAttribute("data-lurei-angle-remove", String(index));
+        remove.setAttribute("aria-label", "Remove photo " + (index + 1));
+        remove.innerHTML = "&times;";
+        cell.appendChild(remove);
+
+        thumbs.appendChild(cell);
+      });
+
+      var emptyNote = document.createElement("p");
+      emptyNote.className = "lurei-angle__hint";
+      emptyNote.textContent = gallery.length
+        ? gallery.length + (gallery.length === 1 ? " photo" : " photos") + " — the first one leads the card"
+        : "No photos yet — add the first angle";
+      thumbs.appendChild(emptyNote);
+    };
+
+    thumbs.addEventListener("click", function (event) {
+      var remove = event.target.closest("[data-lurei-angle-remove]");
+      if (!remove) return;
+      event.preventDefault();
+      event.stopPropagation();
+
+      var index = Number(remove.getAttribute("data-lurei-angle-remove"));
+      var current = byId(product.id);
+      var gallery = productGallery(current);
+
+      if (index < 0 || index >= gallery.length) return;
+      gallery.splice(index, 1);
+      if (!saveGallery(current, gallery, gallery.length ? gallery.length + " photos saved." : "Photo removed.")) {
+        renderThumbs();
+      }
+    });
+
+    fileInput.addEventListener("change", function () {
+      var files = Array.prototype.slice.call(fileInput.files || []).filter(function (file) {
+        return file && /^image\//.test(file.type);
+      });
+      fileInput.value = "";
+      if (!files.length) return;
+
+      if (errorEl) errorEl.hidden = true;
+      addFilesButton.disabled = true;
+      addFilesButton.textContent = "COMPRESSING...";
+
+      Promise.all(files.map(function (file) {
+        return readImageAsDataURL(file);
+      })).then(function (dataURLs) {
+        if (!appendGalleryImages(product, dataURLs)) {
+          addFilesButton.disabled = false;
+          addFilesButton.textContent = "+ ADD ANGLE / EXTRA PHOTO";
+        }
+      }).catch(function (error) {
+        showErrorMessage(error);
+        addFilesButton.disabled = false;
+        addFilesButton.textContent = "+ ADD ANGLE / EXTRA PHOTO";
+      });
+    });
+
+    addFilesButton.addEventListener("click", function () {
+      if (errorEl) errorEl.hidden = true;
+      fileInput.click();
+    });
+
+    addUrlButton.addEventListener("click", function () {
+      if (errorEl) errorEl.hidden = true;
+      var src = String(urlField.value || "").trim();
+      if (!src) {
+        showErrorMessage(new Error("Paste a full image URL (https://...) first."));
+        urlField.focus();
+        return;
+      }
+      if (!REMOTE_SRC.test(src)) {
+        showErrorMessage(new Error("That does not look like an image URL. It should start with https://."));
+        urlField.focus();
+        return;
+      }
+      urlField.value = "";
+      if (!appendGalleryImages(product, [src])) renderThumbs();
+    });
+
+    closeButton.addEventListener("click", function () {
+      wrap.remove();
+      if (String(angleId) === String(product.id)) angleId = null;
+    });
+
+    renderThumbs();
+    return wrap;
+  };
+
+  var openAnglePanel = function (card, product) {
+    if (!card) return;
+
+    Array.prototype.forEach.call(grid.querySelectorAll("[data-lurei-angle]"), function (node) {
+      node.remove();
+    });
+
+    angleId = product.id;
+    var media = card.querySelector(".product-card__media") || card;
+    media.appendChild(buildAnglePanel(product));
+  };
+
+  var closeAnglePanel = function () {
+    if (!grid) return;
+    Array.prototype.forEach.call(grid.querySelectorAll("[data-lurei-angle]"), function (node) {
+      node.remove();
+    });
+    angleId = null;
+  };
+
   /* ---------------- Edit-mode session bar ---------------- */
 
   var leaveEditMode = function () {
@@ -1279,11 +2001,32 @@ var mounted = false;
      Dashboard - never a storefront reload. The admin preview flag is left
      intact so the dashboard guard still admits the navigation, and the target
      carries no editMode parameter so the browser can never restore a cached
-     edit view. leaveEditMode above stays for the unauthorized-mount path,
-     which must remain here. */
+     edit view. location.replace() is deliberate: it drops this edit-session
+     entry from history, so a later Back gesture can never resurrect the
+     editor from bfcache after the flag has been cleared. leaveEditMode above
+     stays for the unauthorized-mount path, which must remain here. */
   var exitToDashboard = function () {
     catalogue.exitEditMode();
-    window.location.href = "admin-dashboard.html";
+    try {
+      sessionStorage.removeItem("lurei_admin_edit_active");
+    } catch (error) {
+      /* private mode: there is nothing to clear */
+    }
+    /* The dashboard's hand-off flag must go too — EXIT & SAVE is the explicit
+       reset of the whole edit session, whatever route re-armed it. */
+    try {
+      sessionStorage.removeItem("is_admin_editing_mode");
+    } catch (error) {
+      /* private mode: there is nothing to clear */
+    }
+    try {
+      var url = new URL(window.location.href);
+      url.searchParams.delete("editMode");
+      window.history.replaceState({}, "", url.pathname + url.search);
+    } catch (error) {
+      /* history is best-effort; the flag removal above is authoritative */
+    }
+    window.location.replace("admin-dashboard.html");
   };
 
   var buildEditBar = function () {
@@ -1293,7 +2036,7 @@ var mounted = false;
     bar.setAttribute("aria-label", "Storefront edit mode");
     bar.innerHTML =
       '<span class="lurei-edit-bar__pulse" aria-hidden="true"></span>' +
-      '<strong class="lurei-edit-bar__title">STOREFRONT EDIT MODE ACTIVE</strong>' +
+      '<strong class="lurei-edit-bar__title">EDITING LIVE STOREFRONT</strong>' +
       '<span class="lurei-edit-bar__hint">Every change saves to your live catalogue instantly</span>' +
       '<button class="lurei-edit-bar__exit" type="button">EXIT &amp; SAVE</button>';
 
@@ -1338,6 +2081,15 @@ var mounted = false;
         '<button class="lurei-card-btn' + (soldOut ? " is-warn" : "") + '" type="button" ' +
           'data-lurei-action="stock" data-id="' + escapeHTML(product.id) + '">' +
           (soldOut ? "RESTOCK" : "REMOVE / OUT OF STOCK") +
+        "</button>" +
+        '<button class="lurei-card-btn" type="button" ' +
+          'data-lurei-action="angle" data-id="' + escapeHTML(product.id) + '" ' +
+          'aria-label="Add angle / extra photo to ' + escapeHTML(product.title) + '">' +
+          "+ ADD ANGLE / EXTRA PHOTO" +
+        "</button>" +
+        '<button class="lurei-card-btn" type="button" ' +
+          'data-lurei-action="photos" data-id="' + escapeHTML(product.id) + '">' +
+          "EDIT PHOTOS / GALLERY" +
         "</button>" +
         '<button class="lurei-card-btn" type="button" ' +
           'data-lurei-action="edit" data-id="' + escapeHTML(product.id) + '">' +
@@ -1593,6 +2345,11 @@ var mounted = false;
               '<div class="lurei-upload__meta">' +
                 '<span class="lurei-upload__label">Product images</span>' +
                 '<span class="lurei-upload__hint" data-lurei-filename>Tap + to upload photos</span>' +
+                '<button class="lurei-upload__more" type="button" data-lurei-add-more>+ Add Angle / Extra Photo</button>' +
+                '<span class="lurei-upload__urlrow">' +
+                  '<input class="lurei-upload__url" type="url" data-lurei-url placeholder="Paste an image URL (https://...)" />' +
+                  '<button class="lurei-upload__urladd" type="button" data-lurei-url-add>ADD URL</button>' +
+                "</span>" +
               "</div>" +
             "</div>" +
             '<div class="lurei-modal__fields">' +
@@ -1634,14 +2391,51 @@ var mounted = false;
     return host;
   };
 
-  var openModal = function () {
+  var openModal = function (product) {
     if (!modal) return;
+    var editing = product ? byId(product.id) : null;
+
     lastFocus = document.activeElement;
+    modalTargetId = editing ? editing.id : null;
     modal.hidden = false;
     document.body.classList.add("lurei-modal-open");
     modal.querySelector("[data-lurei-error]").hidden = true;
     pendingImages = [];
     refreshCategoryDatalist();
+
+    /* Edit flow: prefill every row from the live record. All modal fields
+       exist on both flows, so prefill is safe. */
+    if (editing) {
+      var nameField = modal.querySelector("[data-lurei-name]");
+      var priceField = modal.querySelector("[data-lurei-price]");
+      var typeField = modal.querySelector("[data-lurei-type-input]");
+      var descField = modal.querySelector("[data-lurei-desc]");
+      var stockField = modal.querySelector("[data-lurei-stock]");
+      if (nameField) nameField.value = editing.title || "";
+      if (priceField) {
+        priceField.value = typeof editing.price === "number" ? String(editing.price) : "";
+      }
+      if (typeField) typeField.value = editing.type || "";
+      if (descField) descField.value = editing.description || "";
+      if (stockField) {
+        stockField.value = typeof editing.stock === "number" ? String(editing.stock) : "";
+      }
+      productGallery(editing).forEach(function (src) {
+        if (pendingImages.indexOf(src) === -1) pendingImages.push(src);
+      });
+    }
+
+    var heading = modal.querySelector("#lurei-modal-title");
+    var subtitle = modal.querySelector(".lurei-modal__subtitle");
+    var submitBtn = modal.querySelector('[type="submit"]');
+    if (heading) heading.textContent = editing ? "Edit Product Photos" : "Add New Product";
+    if (subtitle) {
+      subtitle.textContent = editing
+        ? "Drop in extra angles, reorder or remove shots — every change goes live at once."
+        : "It appears on the live storefront the moment you publish.";
+    }
+    if (submitBtn) submitBtn.textContent = editing ? "SAVE CHANGES" : "CONFIRM & PUBLISH PRODUCT";
+
     renderPreview();
     var first = modal.querySelector("[data-lurei-name]");
     if (first) first.focus();
@@ -1654,6 +2448,7 @@ var mounted = false;
     var form = modal.querySelector("form");
     if (form) form.reset();
     pendingImages = [];
+    modalTargetId = null;
     renderPreview();
     if (lastFocus && typeof lastFocus.focus === "function") lastFocus.focus();
   };
@@ -1713,58 +2508,204 @@ var mounted = false;
       : "Tap + to upload photos";
   };
 
-  /* ---------------- Image -> Base64 ---------------- */
+  /* ---------------- HD WebP compression engine ---------------- */
 
-  var readImageAsDataURL = function (file) {
+  var webpSupport = null;
+
+  var canEncodeWebP = function () {
+    if (webpSupport !== null) return webpSupport;
+
+    try {
+      var probe = document.createElement("canvas");
+      probe.width = 1;
+      probe.height = 1;
+      webpSupport = probe.toDataURL("image/webp", 0.8).indexOf("data:image/webp") === 0;
+      probe.width = 0;
+      probe.height = 0;
+    } catch (error) {
+      webpSupport = false;
+    }
+
+    return webpSupport;
+  };
+
+  var dataUrlBytes = function (dataUrl) {
+    var comma = String(dataUrl || "").indexOf(",");
+    if (comma === -1) return 0;
+
+    var base64 = String(dataUrl).slice(comma + 1);
+    var padding = 0;
+    if (base64.slice(-2) === "==") padding = 2;
+    else if (base64.slice(-1) === "=") padding = 1;
+
+    return Math.max(0, Math.floor((base64.length * 3) / 4) - padding);
+  };
+
+  var encodeCanvasAt = function (image, edge, quality) {
+    var sourceWidth = image.naturalWidth || image.width;
+    var sourceHeight = image.naturalHeight || image.height;
+    var scale = Math.min(1, edge / Math.max(sourceWidth, sourceHeight));
+    var width = Math.max(1, Math.round(sourceWidth * scale));
+    var height = Math.max(1, Math.round(sourceHeight * scale));
+    var canvas = document.createElement("canvas");
+
+    canvas.width = width;
+    canvas.height = height;
+
+    try {
+      var ctx = canvas.getContext("2d");
+      if (!ctx) throw new Error("Canvas is unavailable.");
+
+      ctx.imageSmoothingEnabled = true;
+      try {
+        ctx.imageSmoothingQuality = "high";
+      } catch (smoothingError) {}
+
+      ctx.fillStyle = "#FAF8F5";
+      ctx.fillRect(0, 0, width, height);
+      ctx.drawImage(image, 0, 0, width, height);
+
+      var mime = canEncodeWebP() ? "image/webp" : "image/jpeg";
+      var dataUrl = canvas.toDataURL(mime, quality);
+
+      return {
+        dataUrl: dataUrl,
+        bytes: dataUrlBytes(dataUrl),
+        width: width,
+        height: height,
+      };
+    } finally {
+      try {
+        canvas.width = 0;
+        canvas.height = 0;
+      } catch (releaseError) {}
+    }
+  };
+
+  /* Starts at the requested 1200px / 0.80 HD WebP setting. If that lands
+     above the 80KB target, quality is eased down to 0.60 before the bounding
+     box shrinks; the smallest attempt is kept so a photo that cannot reach the
+     target still returns the best encoding rather than failing the upload. */
+  var compressImageToTarget = function (image) {
+    var maxEdge = Number(catalogue.maxImageEdge) || MAX_IMAGE_EDGE;
+    var targetBytes = Number(catalogue.imageTargetMaxBytes) || IMAGE_TARGET_MAX_BYTES;
+    var startQuality = Number(catalogue.imageQuality) || IMAGE_QUALITY;
+    var minQuality = Number(catalogue.imageMinQuality) || IMAGE_MIN_QUALITY;
+    var ultraEdge = Number(catalogue.ultraLightImageEdge) || ULTRA_LIGHT_IMAGE_EDGE;
+    var ultraQuality = Number(catalogue.imageUltraQuality) || IMAGE_ULTRA_QUALITY;
+    var edge = maxEdge;
+    var quality = startQuality;
+    var best = null;
+    var attempts = 0;
+
+    while (attempts < 16) {
+      attempts++;
+      var attempt = encodeCanvasAt(image, edge, quality);
+      if (!best || attempt.bytes < best.bytes) best = attempt;
+      if (attempt.bytes <= targetBytes) return attempt.dataUrl;
+
+      if (quality > minQuality + 0.001) {
+        quality = Math.max(minQuality, Math.round((quality - 0.05) * 100) / 100);
+      } else if (edge > 720) {
+        edge = Math.max(720, Math.round(edge * 0.88));
+        quality = startQuality;
+      } else {
+        break;
+      }
+    }
+
+    /* Emergency ultra-light pass for unusually dense or unexpectedly large
+       source photos. It only runs when the HD pass could not meet the cap. */
+    try {
+      var ultra = encodeCanvasAt(image, Math.min(edge, ultraEdge), ultraQuality);
+      if (!best || ultra.bytes < best.bytes) best = ultra;
+    } catch (error) {}
+
+    return best ? best.dataUrl : null;
+  };
+
+  var loadImageFile = function (file) {
     return new Promise(function (resolve, reject) {
-      if (!file || !/^image\//.test(file.type)) {
-        reject(new Error("Please choose an image file (JPG, PNG or WebP)."));
-        return;
+      var image = new Image();
+      var objectUrl = null;
+      var finished = false;
+
+      var settle = function (error) {
+        if (finished) return;
+        finished = true;
+
+        if (objectUrl) {
+          try {
+            URL.revokeObjectURL(objectUrl);
+          } catch (revokeError) {}
+          objectUrl = null;
+        }
+
+        if (error) reject(error);
+        else resolve(image);
+      };
+
+      image.onload = function () {
+        if (!image.naturalWidth || !image.naturalHeight) {
+          settle(new Error("That file is not a usable image."));
+          return;
+        }
+        settle(null);
+      };
+
+      image.onerror = function () {
+        settle(new Error("That file is not a usable image."));
+      };
+
+      if (
+        typeof URL !== "undefined" &&
+        typeof URL.createObjectURL === "function"
+      ) {
+        try {
+          objectUrl = URL.createObjectURL(file);
+          image.src = objectUrl;
+          return;
+        } catch (error) {
+          objectUrl = null;
+        }
       }
 
       var reader = new FileReader();
 
       reader.onerror = function () {
-        reject(new Error("That image could not be read. Try a different file."));
+        settle(new Error("That image could not be read. Try a different file."));
       };
 
       reader.onload = function () {
-        var image = new Image();
-
-        image.onerror = function () {
-          reject(new Error("That file is not a usable image."));
-        };
-
-        image.onload = function () {
-          /* Downscaled before encoding: a full-resolution phone photo is
-             megabytes of Base64 and would fill localStorage on its own. */
-          var scale = Math.min(
-            1,
-            catalogue.maxImageEdge / Math.max(image.naturalWidth, image.naturalHeight)
-          );
-          var width = Math.max(1, Math.round(image.naturalWidth * scale));
-          var height = Math.max(1, Math.round(image.naturalHeight * scale));
-
-          var canvas = document.createElement("canvas");
-          canvas.width = width;
-          canvas.height = height;
-
-          var ctx = canvas.getContext("2d");
-          ctx.fillStyle = "#FAF8F5";
-          ctx.fillRect(0, 0, width, height);
-          ctx.drawImage(image, 0, 0, width, height);
-
-          try {
-            resolve(canvas.toDataURL("image/jpeg", catalogue.imageQuality));
-          } catch (error) {
-            reject(new Error("That image could not be prepared for the storefront."));
-          }
-        };
-
         image.src = reader.result;
       };
 
       reader.readAsDataURL(file);
+    });
+  };
+
+  var readImageAsDataURL = function (file) {
+    if (!file || !/^image\//.test(file.type)) {
+      return Promise.reject(new Error("Please choose an image file (JPG, PNG or WebP)."));
+    }
+
+    return loadImageFile(file).then(function (image) {
+      try {
+        var dataUrl = compressImageToTarget(image);
+        if (dataUrl) return dataUrl;
+      } catch (error) {}
+
+      /* Last-resort path when memory pressure prevents the normal canvas
+         pipeline from completing. */
+      try {
+        return encodeCanvasAt(
+          image,
+          Number(catalogue.ultraLightImageEdge) || ULTRA_LIGHT_IMAGE_EDGE,
+          Number(catalogue.imageUltraQuality) || IMAGE_ULTRA_QUALITY
+        ).dataUrl;
+      } catch (fallbackError) {
+        throw new Error("That image could not be prepared for the storefront.");
+      }
     });
   };
 
@@ -1899,6 +2840,16 @@ var onGridClick = function (event) {
       return;
     }
 
+    if (action.getAttribute("data-lurei-action") === "angle") {
+      if (card) openAnglePanel(card, product);
+      return;
+    }
+
+    if (action.getAttribute("data-lurei-action") === "photos") {
+      openModal(product);
+      return;
+    }
+
     /* This button is the only thing that may set or clear the sold-out flag. The
        count still moves with it so a restock brings the previous number back
        rather than an arbitrary one, but the 0 written below is just a count —
@@ -1958,7 +2909,7 @@ var onGridClick = function (event) {
     }
 
     try {
-      var created = store.add({
+      var payload = {
         title: title,
         price: price,
         category: catalogue.priceBucketFor(price),
@@ -1967,7 +2918,18 @@ var onGridClick = function (event) {
         image: pendingImages[0] || "",
         images: pendingImages.slice(),
         stock: stockRaw === "" ? null : Number(stockRaw),
-      });
+      };
+      var editingTarget = modalTargetId === null ? null : byId(modalTargetId);
+      modalTargetId = null;
+
+      if (editingTarget) {
+        store.update(editingTarget.id, payload);
+        closeModal();
+        announce('"' + payload.title + '" saved — the storefront gallery is updated.');
+        return;
+      }
+
+      var created = store.add(payload);
 
       /* New customs append their nav tab only after the product saved: a
          window event bridges the edit-mode scope to the storefront scope. */
@@ -2017,17 +2979,92 @@ var onGridClick = function (event) {
       file.value = "";
     });
 
+    /* "+ Add Angle / Extra Photo" simply opens the same multi-photo picker. */
+    var addMore = modal.querySelector("[data-lurei-add-more]");
+    if (addMore) {
+      addMore.addEventListener("click", function () {
+        file.click();
+      });
+    }
+
+    /* URL row: external image links join the staged gallery without a device
+       upload, which is how owners re-use stock photography or CDN images. */
+    var urlField = modal.querySelector("[data-lurei-url]");
+    var urlAdd = modal.querySelector("[data-lurei-url-add]");
+    if (urlAdd && urlField) {
+      urlAdd.addEventListener("click", function () {
+        var src = String(urlField.value || "").trim();
+        if (!src || !REMOTE_SRC.test(src)) {
+          errorHost.textContent = "That does not look like an image URL. It should start with https://.";
+          errorHost.hidden = false;
+          urlField.focus();
+          return;
+        }
+        urlField.value = "";
+        if (pendingImages.indexOf(src) === -1) pendingImages.push(src);
+        renderPreview();
+      });
+      urlField.addEventListener("keydown", function (eventThumb) {
+        if (eventThumb.key === "Enter") {
+          eventThumb.preventDefault();
+          urlAdd.click();
+        }
+      });
+    }
+
     /* The + tile opens the picker for extra photos; the x on a tile drops just
        that one. Both stop the click here so the panel-wide handler below does
        not open the picker as well. */
+    /* While editing an existing product the x badge is not merely staging:
+       it writes the trimmed gallery straight through store.update(), which
+       persists to localStorage (chunked) and the IndexedDB mirror in the same
+       tick, so a stray CANCEL never resurrects a photo the owner deleted.
+       Deleting the primary promotes the next shot automatically because the
+       patch always sets image to images[0]. Removing every photo leaves
+       image "" / images [] — the storefront then falls back to the default
+       product frame, and a compiled-in product keeps its built-in gallery
+       (layer() never blanks originals with empty overrides). */
+    var commitGalleryToStore = function (gallery) {
+      if (modalTargetId === null) return true;
+      var target = byId(modalTargetId);
+      if (!target) return true;
+      try {
+        store.update(target.id, {
+          image: gallery.length ? gallery[0] : "",
+          images: gallery.slice(),
+        });
+        return true;
+      } catch (error) {
+        flashError(modal, error.message);
+        return false;
+      }
+    };
+
+    var onThumbRemove = function (remove) {
+      var index = Number(remove.getAttribute("data-lurei-remove"));
+      if (!(index >= 0 && index < pendingImages.length)) return;
+
+      pendingImages.splice(index, 1);
+      renderPreview();
+
+      if (commitGalleryToStore(pendingImages)) {
+        announce(
+          modalTargetId === null
+            ? "Photo staged out."
+            : "Photo deleted — the live catalogue is updated (" +
+              pendingImages.length +
+              (pendingImages.length === 1 ? " photo left" : " photos left") +
+              ")."
+        );
+      }
+    };
+
     preview.addEventListener("click", function (event) {
       var remove = event.target.closest("[data-lurei-remove]");
       if (remove) {
         event.preventDefault();
         event.stopPropagation();
-        var index = Number(remove.getAttribute("data-lurei-remove"));
-        if (index >= 0 && index < pendingImages.length) pendingImages.splice(index, 1);
-        renderPreview();
+        onThumbRemove(remove);
         return;
       }
 
@@ -2072,11 +3109,13 @@ var onGridClick = function (event) {
 
   var wireEditMode = function () {
     var bar = buildEditBar();
+    barEl = bar;
     document.body.appendChild(bar);
     document.body.classList.add("lurei-edit-mode");
 
     var host = grid.closest(".container") || grid.parentNode;
-    host.insertBefore(buildFab(), grid);
+    fabEl = buildFab();
+    host.insertBefore(fabEl, grid);
     modal = buildModal();
     wireModal();
 
@@ -2104,6 +3143,19 @@ var onGridClick = function (event) {
         }
         if (!editing) editingId = null;
       }
+
+      /* Same reopen pattern for the "+" angle panel: an upload/add/save refreshes
+         the whole grid, so re-attach the panel to the rebuilt card. */
+      if (angleId !== null) {
+        var angling = byId(angleId);
+        var angleTarget = angling
+          ? grid.querySelector('.product-card[data-product-id="' + String(angleId) + '"]')
+          : null;
+        if (angling && angleTarget && !angleTarget.querySelector("[data-lurei-angle]")) {
+          openAnglePanel(angleTarget, angling);
+        }
+        if (!angling) angleId = null;
+      }
     };
 
     observer = new MutationObserver(decorate);
@@ -2121,21 +3173,100 @@ var onGridClick = function (event) {
     announce("Storefront edit mode is on. Changes save instantly.");
   };
 
+  /* Removes every piece of editor chrome and detaches every listener. Used by
+     the force path so a fresh edit session always starts from a clean slate:
+     no duplicate bar/FAB/modal, no second observer or store subscription, and
+     no stale inline editors or card toolbars left over from a previous mount
+     (including one restored from the back/forward cache). Product cards, the
+     grid markup, filters and lightboxes are deliberately untouched. */
+  var teardown = function () {
+    if (observer) {
+      observer.disconnect();
+      observer = null;
+    }
+
+    if (unsubscribe) {
+      try { unsubscribe(); } catch (error) {}
+      unsubscribe = null;
+    }
+
+    if (grid) {
+      grid.removeEventListener("click", onGridClick);
+
+      Array.prototype.forEach.call(grid.querySelectorAll("[data-lurei-inline]"), function (node) {
+        if (node.parentNode) node.parentNode.removeChild(node);
+      });
+
+      Array.prototype.forEach.call(grid.querySelectorAll("[data-lurei-angle]"), function (node) {
+        if (node.parentNode) node.parentNode.removeChild(node);
+      });
+
+      Array.prototype.forEach.call(grid.querySelectorAll("[data-lurei-tools]"), function (node) {
+        if (node.parentNode) node.parentNode.removeChild(node);
+      });
+
+      Array.prototype.forEach.call(grid.querySelectorAll(".lurei-is-editing"), function (card) {
+        card.classList.remove("lurei-is-editing");
+      });
+    }
+
+    if (barEl && barEl.parentNode) barEl.parentNode.removeChild(barEl);
+    barEl = null;
+
+    if (fabEl && fabEl.parentNode) fabEl.parentNode.removeChild(fabEl);
+    fabEl = null;
+
+    if (modal && modal.parentNode) modal.parentNode.removeChild(modal);
+    modal = null;
+
+    if (toast && toast.parentNode) toast.parentNode.removeChild(toast);
+    toast = null;
+    clearTimeout(toastTimer);
+    toastTimer = null;
+
+    document.body.classList.remove("lurei-edit-mode");
+    document.body.classList.remove("lurei-modal-open");
+
+    editingId = null;
+    angleId = null;
+    pendingImages = [];
+    lastFocus = null;
+    mounted = false;
+  };
+
   /* ---------------- Mount ---------------- */
 
   /* The admin dashboard links to collections.html?editMode=true, so the
      query string is honoured as well as the stored session flag. The flag is
      then written back so a refresh (and the EXIT & SAVE button) agree. */
   var requestedViaUrl = function () {
+    /* The direct string check is the contract the dashboard hands off with.
+       It runs first because an embedded/in-app browser can hand back a search
+       string URLSearchParams does not parse the way we expect, and an owner
+       must never be dropped into a storefront without their controls. */
+    if (String(window.location.search || "").includes("editMode=true")) return true;
+
     try {
-      if (new URLSearchParams(window.location.search).get("editMode") === "true") return true;
+      return new URLSearchParams(window.location.search).get("editMode") === "true";
     } catch (error) {
-      /* fall through to the raw-string check below */
+      return false;
     }
-    /* Explicit string check as well: an embedded/in-app browser can hand back
-       a search string URLSearchParams does not parse the way we expect, and an
-       owner must never be dropped into a storefront without their controls. */
-    return String(window.location.search || "").indexOf("editMode=true") !== -1;
+  };
+
+  /* Both parameters are part of the edit hand-off contract. If an older link
+     or a manual visit arrives with only editMode=true, add the missing _ts
+     cache-buster without reloading the page. */
+  var ensureEditUrlCacheBuster = function () {
+    if (!requestedViaUrl()) return;
+    try {
+      var url = new URL(window.location.href);
+      if (url.searchParams.get("editMode") !== "true") return;
+      if (url.searchParams.has("_ts")) return;
+      url.searchParams.set("_ts", String(Date.now()));
+      window.history.replaceState({}, "", url.pathname + url.search + url.hash);
+    } catch (error) {
+      /* URL/history unavailable: the editor still mounts from the query check */
+    }
   };
 
   /* The homepage is a pure storefront preview and never hosts the editor.
@@ -2153,17 +3284,80 @@ var onGridClick = function (event) {
     return /(?:^|\/)index\.html?$/i.test(path);
   };
 
-  var mount = function () {
-    /* mount() is exposed on the public catalogue object, so guard against a
-       second call: wiring twice would append a second bar, FAB and modal and
-       leave two observers and two store subscriptions running. */
-    if (mounted) return true;
+  /* The only page that hosts the editor. The sessionStorage fallback below is
+     gated on this so a stray flag can never rewrite the homepage or any other
+     storefront URL. */
+  var isCollectionsPage = function () {
+    var path = String(window.location.pathname || "");
+    return /(?:^|\/)collections\.html?$/i.test(path) || /(?:^|\/)collections\/?$/i.test(path);
+  };
 
+  var restoringEditSession = false;
+
+  /* A lost or stripped editMode query string must never kill the editor.
+     The tab alone knows the session: the dashboard sets is_admin_editing_mode
+     before navigating, and enterEditMode() keeps both flags fresh. When
+     either flag says "an admin edit session is live on this tab", the query
+     string is rewritten back onto the URL (history API - no reload flicker)
+     and normal startup continues into mount(), which the rewritten URL then
+     satisfies through requestedViaUrl(). The check ignores the referrer:
+     browsers lose it on downloads, new tabs and some in-app webviews, which
+     is exactly how this session used to be lost. */
+  var restoreEditModeFromSession = function () {
+    if (restoringEditSession) return true;
+    if (requestedViaUrl()) return false;
+    if (!isCollectionsPage()) return false;
+    if (!catalogue.isEditSessionActive() && !catalogue.isEditIntentActive()) return false;
+
+    var next;
+    try {
+      next = new URL(window.location.href);
+    } catch (error) {
+      return false;
+    }
+
+    next.searchParams.set("editMode", "true");
+    next.searchParams.set("_ts", String(Date.now()));
+
+    try {
+      window.history.replaceState({}, "", next.pathname + next.search + next.hash);
+    } catch (error) {
+      /* History is best-effort: fall through and let the flags drive mount()
+         directly rather than blocking the editor over a URL rewrite. */
+    }
+    return false;
+  };
+
+  var mount = function (options) {
+    var force = !!(options && options.force);
+
+    /* A forced mount tears the old editor down first, so the dashboard
+       hand-off always produces brand-new inline price editors, stock toggles
+       and an ADD NEW PRODUCT modal - even when the page was restored from
+       bfcache with stale chrome still attached. */
+    if (force) {
+      teardown();
+    } else if (mounted) {
+      /* Guard against a second call: wiring twice would append a second bar,
+         FAB and modal and leave two observers and two subscriptions running. */
+      return true;
+    }
+
+    ensureEditUrlCacheBuster();
     var viaUrl = requestedViaUrl();
 
-    /* Either route counts: the stored session flag set by the dashboard, or
-       the ?editMode=true query string the dashboard button links to. */
-    if (!catalogue.isEditModeRequested() && !viaUrl) return false;
+    /* Four equal routes count: the stored session flag (localStorage), the
+       ?editMode=true query string, the dashboard's tab-scoped intent flag and
+       the legacy tab-scoped edit-session flag. Whichever of the four survives
+       the hand-off is enough to mount. */
+    if (
+      !catalogue.isEditModeRequested() &&
+      !viaUrl &&
+      !catalogue.isEditIntentActive() &&
+      !catalogue.isEditSessionActive()
+    ) {
+      return false;
+    }
 
     /* Storefront preview page: clear any stale flag and mount nothing, so
        the homepage stays byte-for-byte what a customer sees. Clearing the
@@ -2196,6 +3390,30 @@ var onGridClick = function (event) {
 
   catalogue.mount = mount;
 
+  /* Public names for the collections.html initializer. enableEditMode() and
+     mountAdminControls({ force: true }) are the explicit "render the full
+     editor now" entry points; both always rebuild from scratch. The
+     parameter-free mountAdminControls() stays idempotent for compatibility. */
+  catalogue.mountAdminControls = function (options) {
+    return mount(options || {});
+  };
+
+  catalogue.enableEditMode = function () {
+    return mount({ force: true });
+  };
+
+  /* Called by collections.html after load. Checking the query string here (as
+     well as inside mount()) guarantees that ?editMode=true always triggers the
+     complete edit-mode setup, regardless of any stored session flag. */
+  catalogue.initEditModeFromUrl = function () {
+    if (restoreEditModeFromSession()) return false;
+    if (!requestedViaUrl()) return false;
+    return mount({ force: true });
+  };
+
+  catalogue.restoreEditModeFromSession = restoreEditModeFromSession;
+  catalogue.isCollectionsPage = isCollectionsPage;
+
   /* Exposed because the account/auth block further down the file runs in a
      separate closure and also needs to know it is on the storefront. */
   catalogue.isStorefrontPreviewPage = isStorefrontPreviewPage;
@@ -2205,42 +3423,56 @@ var onGridClick = function (event) {
      store half above is deliberately usable without a DOM. */
   if (typeof document === "undefined") return;
 
-  var start = function () {
+  var start = function (options) {
+    /* A lost query string with a live admin session is repaired before any
+       mount attempt, so the page re-enters edit mode with the expected URL. */
+    if (restoreEditModeFromSession()) return false;
+
     try {
-      mount();
+      return mount(options);
     } catch (error) {
       console.error("[Storefront Editor] could not start:", error && error.message);
+      return false;
     }
   };
 
   /* The dashboard hand-off lands here on collections.html?editMode=true. That
      URL is an explicit instruction to render the editor, so it is checked
-     directly (not only through the stored flag) and mount() is attempted on
-     DOMContentLoaded as well, so the controls appear even if the grid parsed
-     after this closure first ran. mount() is idempotent, so calling it from
-     both paths is harmless. */
-  var startFromEditUrl = function () {
-    if (String(window.location.search || "").indexOf("editMode=true") === -1) return;
-    start();
+     directly (not only through the stored flag) and the full setup is forced
+     on DOMContentLoaded. Forcing means stale chrome is removed and every
+     control is rebuilt fresh, even if this page had already mounted once. */
+  var startFromEditUrl = function (options) {
+    /* The URL is the normal route; both session flags cover the reload,
+       bfcache-restore and referrer-loss cases where the query string was
+       stripped behind the browser's back. */
+    if (
+      !requestedViaUrl() &&
+      !catalogue.isEditIntentActive() &&
+      !catalogue.isEditSessionActive()
+    ) {
+      return false;
+    }
+    return start(options);
   };
 
   /* Back/forward cache: a restored page keeps the DOM and JS state from the
      earlier visit, so a storefront snapshot cached from a clean customer view
      can come back with the URL still reading ?editMode=true but no bar, FAB or
-     card tools. Re-running start() is idempotent - if the editor is already
-     mounted it is a no-op, otherwise mount() re-injects every control so the
-     editor never reappears half-rendered. */
+     card tools. A persisted restore therefore forces a complete rebuild; a
+     normal initial pageshow is already covered by the DOMContentLoaded path. */
   if (typeof window !== "undefined" && window.addEventListener) {
-    window.addEventListener("pageshow", startFromEditUrl);
+    window.addEventListener("pageshow", function (event) {
+      startFromEditUrl(event && event.persisted ? { force: true } : undefined);
+    });
   }
 
   if (document.readyState === "loading") {
     document.addEventListener("DOMContentLoaded", function () {
-      startFromEditUrl();
+      startFromEditUrl({ force: true });
       start();
     });
   } else {
-    startFromEditUrl();
+    startFromEditUrl({ force: true });
     start();
   }
 })();
@@ -2760,6 +3992,60 @@ const stockLabelFor = (count) => `STOCK ${count} LEFT`;
     );
     media.appendChild(img);
 
+    /* Multi-angle card gallery: with more than one stored photo the media box
+       gets a hidden secondary angle (revealed on hover) and thumbnail dots.
+       Clicking a dot swaps the main photo by hand; afterwards CSS hover no
+       longer overrides what the shopper picked. */
+    const gallery = [];
+    if (Array.isArray(product.images)) {
+      product.images.forEach((value) => {
+        const src = typeof value === "string" ? value.trim() : "";
+        if (src && gallery.indexOf(src) === -1) gallery.push(src);
+      });
+    }
+    if (typeof product.image === "string" && product.image.trim()) {
+      const primary = product.image.trim();
+      if (gallery.indexOf(primary) === -1) gallery.unshift(primary);
+    }
+
+    if (gallery.length > 1) {
+      media.classList.add("has-gallery");
+
+      const alt = document.createElement("img");
+      alt.className = "product-card__img product-card__img--alt";
+      alt.alt = "";
+      alt.width = 500;
+      alt.height = 500;
+      alt.loading = "lazy";
+      alt.decoding = "async";
+      wireImage(alt, { image: gallery[1], title: product.title }, () => {
+        alt.remove();
+        media.classList.remove("has-gallery");
+      });
+      media.appendChild(alt);
+
+      const dots = document.createElement("div");
+      dots.className = "product-card__dots";
+      gallery.slice(0, 6).forEach((src, i) => {
+        const dot = document.createElement("button");
+        dot.type = "button";
+        dot.className = "product-card__dot" + (i === 0 ? " is-on" : "");
+        dot.title = "View angle " + (i + 1);
+        dot.setAttribute("aria-label", "View angle " + (i + 1) + " of " + product.title);
+        dot.addEventListener("click", (event) => {
+          event.preventDefault();
+          event.stopPropagation();
+          media.classList.add("is-gallery-picked");
+          dots.querySelectorAll(".product-card__dot").forEach((other) => {
+            other.classList.toggle("is-on", other === dot);
+          });
+          wireImage(img, { image: src, title: product.title }, () => {});
+        });
+        dots.appendChild(dot);
+      });
+      media.appendChild(dots);
+    }
+
     const badge = product.badge ? String(product.badge).trim() : null;
     if (badge) {
       const label = document.createElement("span");
@@ -2905,7 +4191,13 @@ const stockLabelFor = (count) => `STOCK ${count} LEFT`;
     img.decoding = "async";
 
     stage.appendChild(img);
-    overlay.append(closeBtn, stage);
+
+    /* Multi-angle viewer: one row of gallery thumbnails under the stage. It
+       stays hidden for single-photo products. */
+    const thumbs = document.createElement("div");
+    thumbs.className = "lightbox__thumbs";
+
+    overlay.append(closeBtn, stage, thumbs);
     document.body.appendChild(overlay);
 
     overlay.addEventListener("click", (event) => {
@@ -2919,12 +4211,77 @@ const stockLabelFor = (count) => `STOCK ${count} LEFT`;
     return overlay;
   };
 
-  const openLightbox = (src, alt) => {
+  /* Lightbox gallery state — rebuilt on every openLightbox() call. "Subject"
+     is the product title, used as the alt label of the main photo regardless
+     of which angle is on stage. */
+  let lightboxGallery = [];
+  let lightboxIndex = 0;
+  let lightboxSubject = "";
+
+  const lightboxShow = (src) => {
+    if (!lightboxEl) return;
+    const stageImg = lightboxEl.querySelector(".lightbox__img");
+    if (!stageImg) return;
+    stageImg.alt = lightboxSubject || "";
+    /* Local filenames heal through the shared probe exactly like card media;
+       uploaded/WebP data URLs and CDN links pass straight through. */
+    stageImg.onerror = function () {
+      this.onerror = null;
+      this.src = PRODUCT_IMAGE_FALLBACK;
+    };
+    wireImage(stageImg, { image: src, title: lightboxSubject }, () => {
+      stageImg.onerror = null;
+      stageImg.src = PRODUCT_IMAGE_FALLBACK;
+    });
+  };
+
+  const lightboxRenderThumbs = () => {
+    if (!lightboxEl) return;
+    const host = lightboxEl.querySelector(".lightbox__thumbs");
+    if (!host) return;
+
+    host.replaceChildren();
+    /* Extra angles only — the active shot does not need its own thumb. */
+    lightboxGallery.forEach((src, i) => {
+      const thumb = document.createElement("button");
+      thumb.type = "button";
+      thumb.className = "lightbox__thumb" + (i === lightboxIndex ? " is-on" : "");
+      thumb.title = "Angle " + (i + 1);
+      thumb.setAttribute("aria-label", "View angle " + (i + 1));
+
+      const thumbImg = document.createElement("img");
+      thumbImg.alt = "";
+      thumbImg.decoding = "async";
+      thumbImg.width = 72;
+      thumbImg.height = 72;
+      wireImage(thumbImg, { image: src, title: lightboxSubject }, () => {});
+      thumb.appendChild(thumbImg);
+
+      thumb.addEventListener("click", (event) => {
+        event.stopPropagation();
+        lightboxIndex = i;
+        lightboxShow(lightboxGallery[i]);
+        host.querySelectorAll(".lightbox__thumb").forEach((node, j) => {
+          node.classList.toggle("is-on", j === i);
+        });
+      });
+
+      host.appendChild(thumb);
+    });
+
+    host.hidden = lightboxGallery.length < 2;
+  };
+
+  const openLightbox = (src, alt, gallery) => {
     if (!src) return;
     const overlay = ensureLightbox();
-    const img = overlay.querySelector(".lightbox__img");
-    img.src = src;
-    img.alt = alt || "";
+
+    lightboxGallery = Array.isArray(gallery) && gallery.length ? gallery.slice() : [src];
+    lightboxIndex = Math.max(0, lightboxGallery.indexOf(src));
+    lightboxSubject = alt || "";
+    lightboxShow(lightboxGallery[lightboxIndex]);
+    lightboxRenderThumbs();
+
     lightboxReturnFocus = document.activeElement;
     overlay.classList.add("is-open");
     overlay.setAttribute("aria-hidden", "false");
@@ -2951,7 +4308,9 @@ const stockLabelFor = (count) => `STOCK ${count} LEFT`;
   /* Delegated open for the full-screen viewer. Three triggers share it:
      · the product card's expand badge,
      · the Quick View modal's expand badge,
-     · the Quick View modal's main photo (tapping it whole). */
+     · the Quick View modal's main photo (tapping it whole).
+     Card and Quick View triggers also hand the full angle gallery to
+     openLightbox() so the viewer becomes multi-angle too. */
   document.addEventListener("click", (event) => {
     const cardExpand = event.target.closest(".product-card__expand");
     const quickExpand = event.target.closest(".quickview__expand");
@@ -2959,19 +4318,38 @@ const stockLabelFor = (count) => `STOCK ${count} LEFT`;
     if (!cardExpand && !quickExpand && !quickImg) return;
 
     let img = null;
+    let gallery = null;
+
     if (cardExpand) {
       const media = cardExpand.closest(".product-card__media");
       img = media ? media.querySelector("img") : null;
+      const card = cardExpand.closest(".product-card");
+      if (card && card.dataset.productId) {
+        try {
+          const api = window.LureiCatalogue;
+          const product = api
+            ? api.store.read().find((item) => String(item.id) === String(card.dataset.productId))
+            : null;
+          if (product) gallery = quickViewGalleryFor(product);
+        } catch (error) {
+          gallery = null;
+        }
+      }
     } else if (quickImg) {
       img = quickImg;
     } else {
       const stage = quickExpand.closest(".quickview__stage");
       img = stage ? stage.querySelector(".quickview__img") : null;
     }
+
+    /* Quick View's current product carries the compiled-in gallery hint fields
+       (fallbackImages etc.), so resolve through the same helper the thumbs use. */
+    if (quickViewProduct && !cardExpand) gallery = quickViewGalleryFor(quickViewProduct);
+
     if (!img || !img.getAttribute("src")) return;
 
     event.preventDefault();
-    openLightbox(img.currentSrc || img.src, img.alt || "");
+    openLightbox(img.currentSrc || img.src, img.alt || "", gallery);
   });
 
   document.addEventListener("keydown", (event) => {
@@ -3517,13 +4895,15 @@ const stockLabelFor = (count) => `STOCK ${count} LEFT`;
     } catch {}
     window.addEventListener("storage", (event) => {
       if (!event) return;
-      /* MASTER_STORAGE_KEY ("lurei_products") or the created registry; a null
-         key means storage was cleared wholesale. */
-      if (
-        event.key !== null &&
-        event.key !== "lurei_products" &&
-        event.key !== "lurei_created_categories"
-      ) {
+      /* The chunked catalogue (meta + chunks), its legacy single key, or the
+         created registry; a null key means storage was cleared wholesale. */
+      var api = window.LureiCatalogue;
+      var masterKey =
+        api && typeof api.isMasterStorageKey === "function"
+          ? api.isMasterStorageKey(event.key)
+          : event.key === null || event.key === "lurei_products";
+
+      if (!masterKey && event.key !== "lurei_created_categories") {
         return;
       }
       renderCreatedTabs();
