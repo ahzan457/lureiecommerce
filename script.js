@@ -565,6 +565,32 @@
      referrer is lost. */
   var ADMIN_INTENT_SESSION_KEY = "is_admin_editing_mode";
 
+  /* ------------------------------------------------------------------ *
+   * Dual-storage + lifecycle keys
+   *
+   *   lurei_verified_products     — the permanent vault. Once a recovery
+   *                                 sweep verifies owner products, they are
+   *                                 locked in here and never overwritten,
+   *                                 never cleared and never deleted: every
+   *                                 later save path only MERGES INTO it, so
+   *                                 an accidental wipe of the active
+   *                                 catalogue keys can always be reversed.
+   *   lurei_new_admin_products    — the dedicated registry for every piece
+   *                                 added through the Admin Dashboard
+   *                                 (Save & Exit editor). Each entry carries
+   *                                 its exact `dateAdded` creation stamp.
+   *   lurei_recycle_bin           — the delete workflow. store.remove()
+   *                                 moves the full product record (every
+   *                                 A-to-Z detail + photos + date) here with
+   *                                 a `deletedAt` stamp instead of losing
+   *                                 it, so the active catalogue stays clean
+   *                                 while the record stays recoverable
+   *                                 until it is purged permanently.
+   * ------------------------------------------------------------------ */
+  var VERIFIED_STORAGE_KEY = "lurei_verified_products";
+  var ADMIN_NEW_STORAGE_KEY = "lurei_new_admin_products";
+  var RECYCLE_BIN_STORAGE_KEY = "lurei_recycle_bin";
+
   /* A full-resolution phone photo is several megabytes of Base64 and would
      fill localStorage on its own. Every upload is therefore redrawn onto a
      canvas and encoded as HD WebP, aiming for the 50KB-80KB sweet spot that
@@ -809,6 +835,32 @@
     return whole > 0 ? whole : 0;
   };
 
+  /* Storage timestamp normaliser: "when exactly was this stored/created?"
+     Accepts the ISO strings and epoch millis the store writes, or any other
+     parseable date; returns an exact ISO-8601 string or null. A null result
+     is displayed as absent (never zeroed into 1970). */
+  var normalizeDateAdded = function (value) {
+    var parsed = null;
+    if (value instanceof Date) {
+      parsed = isNaN(value.getTime()) ? null : value;
+    } else if (typeof value === "number" && isFinite(value)) {
+      parsed = new Date(value);
+    } else if (typeof value === "string" && value.trim()) {
+      var trimmed = value.trim();
+      if (/^\d{10,13}$/.test(trimmed)) {
+        parsed = new Date(Number(trimmed));
+      } else {
+        var attempt = new Date(trimmed);
+        parsed = isNaN(attempt.getTime()) ? null : attempt;
+      }
+    }
+    if (parsed instanceof Date && !isNaN(parsed.getTime())) {
+      /* epoch millis overflow guard: a year before 2000 is not a real stamp */
+      return parsed.getTime() < 946684800000 ? null : parsed.toISOString();
+    }
+    return null;
+  };
+
   /* An older build wrote product images under assets/images/products/, a folder
    * that never existed on disk, so every one of those cards 404'd and fell back
    * to its placeholder. Such a value is provably dead: drop it and layer() lets
@@ -879,6 +931,11 @@
        untallied" and must never be laundered into a sold-out state here, so
        only the stored boolean decides that. */
     product.outOfStock = raw.outOfStock === true;
+    /* Storage / creation timestamp: preserved verbatim through every save so
+       the exact "when was this stored?" answer survives rewrites, sweeps and
+       confirmation passes. Missing on a legacy record merely reads as absent —
+       the vault writer below stamps those once, permanently. */
+    product.dateAdded = normalizeDateAdded(raw.dateAdded);
     return product;
   };
 
@@ -1114,11 +1171,19 @@
 
       cleanupChunkGenerations(generation, previousMeta && previousMeta.generation);
 
-      /* Reclaim the legacy monolithic key once the chunked generation is
-         committed. Its removal is optional, so a failure is ignored. */
+      /* Mirror the whole authoritative payload onto the primary
+         lurei_products key as well, so the master inventory is always
+         readable from a single key even when the chunk metadata is
+         damaged. Best-effort: if the payload outgrows the remaining
+         quota, the stale key is cleared rather than left behind as a
+         fallback that could serve an outdated catalogue. */
       try {
-        localStorage.removeItem(MASTER_STORAGE_KEY);
-      } catch (error) {}
+        localStorage.setItem(MASTER_STORAGE_KEY, JSON.stringify(payload));
+      } catch (mirrorError) {
+        try {
+          localStorage.removeItem(MASTER_STORAGE_KEY);
+        } catch (error) {}
+      }
     } catch (error) {
       /* Quota/private-mode failure: undo this half-written generation so the
          previous committed generation remains readable. */
@@ -1241,9 +1306,13 @@
   };
 
   /* Local storage may hold an older generation after a quota failure, so the
-     IndexedDB record is compared by timestamp and promoted when it is newer. */
+     IndexedDB record is compared by timestamp and promoted when it is newer.
+     Returns a promise that resolves once hydration (or a no-op) is complete,
+     so the boot sequence can await it before the first render. */
+  var hydrateFromIndexedDbPromise = null;
   var hydrateFromIndexedDb = function () {
-    readCatalogueDb()
+    if (hydrateFromIndexedDbPromise) return hydrateFromIndexedDbPromise;
+    hydrateFromIndexedDbPromise = readCatalogueDb()
       .then(function (record) {
         if (!record || !record.payload) return;
 
@@ -1260,6 +1329,908 @@
         notify();
       })
       .catch(function () {});
+    return hydrateFromIndexedDbPromise;
+  };
+
+  /* ------------------------------------------------------------------ *
+   * Deep storage extraction & recovery (comprehensive sweep)
+   *
+   * Owner-added products can be cached in far more places than the
+   * active catalogue keys, and a broken generation must never erase
+   * them. The sweep below inspects every possible cache:
+   *
+   *   1. localStorage — the chunked catalogue keys (lurei_products,
+   *      lurei_products__meta, every lurei_products__chunk_* generation,
+   *      including stale ones), the legacy monolithic key, and any other
+   *      key whose value turns out to carry product-shaped data. Chunk
+   *      keys are salvaged one key at a time, so a corrupted or
+   *      half-written generation still yields its healthy chunks.
+   *   2. sessionStorage — every key (tab-scoped snapshots written
+   *      during admin hand-offs).
+   *   3. IndexedDB — every database reported by indexedDB.databases()
+   *      (or the known mirror when enumeration is unavailable), every
+   *      object store inside each database, and every record in each
+   *      store — not only the reserved "master" record.
+   *
+   * Everything product-shaped and usable is merged, deduplicated by id
+   * and title (richer records win ties), dummy/test seed rows are
+   * permanently purged into a registry that also keeps them out of
+   * every future resolve(), and the authoritative merged catalogue is
+   * written back to localStorage and the IndexedDB mirror so it stays
+   * persistent across refreshes. Recovered inventory can never be
+   * displaced by defaults: resolve() layers the store on top of any
+   * default list, and the purge registry blocks dummy rows from
+   * re-entering through any data source.
+   * ------------------------------------------------------------------ */
+
+  var PURGE_STORAGE_KEY = "lurei_purged_items";
+  var lastRecoveryReport = null;
+  /* The newest verified master inventory from a completed sweep. Every
+     save path below re-attaches this before writing, so an admin's add,
+     edit, stock or price change can never overwrite or wipe the
+     recovered owner products — even after a quota wipe or a partial
+     localStorage failure leaves the active store empty. */
+  var lastVerifiedInventory = [];
+
+  var normalizeTitle = function (value) {
+    return String(value || "")
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, " ")
+      .trim();
+  };
+
+  var readPurgeRegistry = function () {
+    var parsed = parseStoredJSON(readFlag(PURGE_STORAGE_KEY), []);
+    if (!Array.isArray(parsed)) return [];
+    return parsed.filter(function (entry) {
+      return isPlainProduct(entry) && typeof entry.title === "string" && entry.title;
+    });
+  };
+
+  var addToPurgeRegistry = function (purgedEntries) {
+    try {
+      var stored = readPurgeRegistry();
+      var titles = {};
+      stored.forEach(function (entry) {
+        titles[normalizeTitle(entry.title)] = true;
+      });
+
+      (Array.isArray(purgedEntries) ? purgedEntries : []).forEach(function (entry) {
+        var titleKey = normalizeTitle(entry.title);
+        if (!titleKey || titles[titleKey]) return;
+        titles[titleKey] = true;
+        stored.push({
+          title: entry.title,
+          reason: String(entry.reason || "dummy"),
+          source: String(entry.source || ""),
+          at: Date.now(),
+        });
+      });
+
+      /* Cap the registry so it can never bloat localStorage. */
+      if (stored.length > 400) stored = stored.slice(stored.length - 400);
+      writeFlag(PURGE_STORAGE_KEY, JSON.stringify(stored));
+    } catch (error) {}
+  };
+
+  /* ------------------------------------------------------------------ *
+   * Verified base vault — "lurei_verified_products"
+   * ------------------------------------------------------------------ *
+   * The 200% recovery guarantee. Every verified owner product is written
+   * here ONCE and then only ever merged into: the writer cannot delete,
+   * crop or overwrite vault rows, so wiping the active catalogue keys (a
+   * browser data purge, a quota failure, a broken generation) can always
+   * be reversed from the vault on the next load. Rows also carry their
+   * exact `dateAdded` storage stamp; an owner piece recovered from a
+   * legacy cache without one is stamped once at vault admission time, so
+   * every vault row permanently carries a timestamp.
+   *
+   * How each vault row is chosen when a newer copy arrives: the entry with
+   * the richer field payload wins (photos, description, badge, stock), he
+   * who is richer loses nothing — the written row is the UNION of both so
+   * even a partial old record cannot degrade the vault. */
+  var readVerifiedBase = function () {
+    var parsed = parseStoredJSON(readFlag(VERIFIED_STORAGE_KEY), null);
+    var rows = null;
+    if (Array.isArray(parsed)) rows = parsed;
+    else if (isPlainProduct(parsed) && Array.isArray(parsed.products)) rows = parsed.products;
+    if (!rows) return [];
+    return rows.filter(isPlainProduct).map(sanitize).filter(isUsable);
+  };
+
+  /* The vault's "core": the frozen member list captured at the moment the
+     vault was FIRST persisted. Classification must stay stable for the
+     lifetime of the store: every row admitted in that first lock counts as
+     verified OWNER base; anything added later (via store.add) is an
+     admin-added product for the `lurei_new_admin_products` registry even
+     though the vault also absorbs a safety copy of it (200% guarantee).
+     Without this freeze, the registry would re-derive each commit against
+     the growing vault and silently drop admin rows. */
+  var readVerifiedCore = function () {
+    var parsed = parseStoredJSON(readFlag(VERIFIED_STORAGE_KEY), null);
+    var rows = [];
+    var members = null;
+    if (Array.isArray(parsed)) {
+      rows = parsed;
+    } else if (isPlainProduct(parsed) && Array.isArray(parsed.products)) {
+      rows = parsed.products;
+      if (Array.isArray(parsed.members)) members = parsed.members;
+    }
+
+    /* Legacy vault (no frozen member list): fall back to every row. */
+    if (!members) members = rows.map(function (row) {
+      return normalizeTitle(row && row.title);
+    }).filter(Boolean);
+
+    var wanted = {};
+    members.forEach(function (title) {
+      if (typeof title === "string" && title) {
+        wanted[normalizeTitle(title)] = true;
+      }
+    });
+
+    var core = {};
+    rows.filter(isPlainProduct).forEach(function (row) {
+      var titleKey = normalizeTitle(row.title);
+      if (titleKey && wanted[titleKey]) {
+        core[titleKey] = true;
+        if (row.id !== null && row.id !== undefined) {
+          core[String(row.id)] = true;
+        }
+      }
+    });
+    return core;
+  };
+
+  var RICHER_SCORE_KEYS = ["image", "images", "description", "badge", "stock", "outOfStock"];
+
+  var vaultRichnessOf = function (product) {
+    var score = 0;
+    RICHER_SCORE_KEYS.forEach(function (key) {
+      var v = product[key];
+      if (Array.isArray(v) ? v.length > 0 : (v !== null && v !== undefined && v !== "" && v !== false)) {
+        score += 1;
+      }
+    });
+    return score;
+  };
+
+  /* Merge-only vault writer. `incoming` may be a full catalogue; anything
+     already in the vault stays, and the vault row can only ever GAIN
+     fields. Explicitly tombstoned ids are skipped so a genuine deletion
+     still holds even against the vault. Returns the number of rows the
+     vault now holds (or null when the write was refused — fallback copy). */
+  var ensureVerifiedVault = function (products, tombstoneIds) {
+    var incoming = (Array.isArray(products) ? products : []).filter(isPlainProduct);
+    if (!incoming.length) return null;
+
+    var removed = {};
+    (Array.isArray(tombstoneIds) ? tombstoneIds : []).forEach(function (id) {
+      removed[String(id)] = true;
+    });
+
+    var vault = readVerifiedBase();
+    /* The frozen member list: read it from the existing payload if the vault
+       was already locked; it must never grow afterwards. */
+    var existingVaultPayload = parseStoredJSON(readFlag(VERIFIED_STORAGE_KEY), null);
+    var members = isPlainProduct(existingVaultPayload) && Array.isArray(existingVaultPayload.members)
+      ? existingVaultPayload.members.slice()
+      : null;
+
+    var indexById = {};
+    var indexByTitle = {};
+    vault.forEach(function (row, position) {
+      indexById[String(row.id)] = position;
+      indexByTitle[normalizeTitle(row.title)] = position;
+    });
+
+    var admitted = [];
+    incoming.forEach(function (entry) {
+      if (isDummyItem(entry)) return;
+      var clean = sanitize(entry);
+      if (!isUsable(clean)) return;
+
+      var id = clean.id === null || clean.id === undefined ? "" : String(clean.id);
+      var titleKey = normalizeTitle(clean.title);
+      if (id && removed[id]) return;
+
+      var position = indexById[id];
+      if (position === undefined && titleKey in indexByTitle) {
+        position = indexByTitle[titleKey];
+      }
+
+      if (position === undefined) {
+        /* Legacy row without a date: stamp it once, permanently, with the
+           timestamp that this save wrote it into the vault. */
+        if (!clean.dateAdded) clean.dateAdded = new Date().toISOString();
+        vault.push(clean);
+        indexById[String(clean.id)] = vault.length - 1;
+        indexByTitle[normalizeTitle(clean.title)] = vault.length - 1;
+        admitted.push(clean.title);
+        return;
+      }
+
+      var current = vault[position];
+      var richerIncoming = vaultRichnessOf(clean) > vaultRichnessOf(current);
+      if (richerIncoming) {
+        /* Union merge: keep whichever version is richer, but the merged row
+           never loses the earliest timestamp. */
+        var keptDate = current.dateAdded || clean.dateAdded;
+        vault[position] = Object.assign({}, current, clean, {
+          dateAdded: keptDate,
+        });
+      }
+      if (!vault[position].dateAdded) {
+        vault[position].dateAdded = clean.dateAdded || new Date().toISOString();
+      }
+    });
+
+    if (!admitted.length) return vault.length;
+
+    /* First lock: freeze the member list to exactly what the vault held at
+       that moment. Later commits re-use it unchanged. */
+    if (!members) {
+      members = vault.map(function (row) {
+        return normalizeTitle(row.title);
+      }).filter(Boolean);
+    }
+
+    var payload = {
+      version: STORE_VERSION,
+      products: vault,
+      members: members,
+      lockedAt: new Date().toISOString(),
+    };
+    /* Best-effort quota safety: indexedDB already mirrors the catalogue, and
+       this write shrinks the vault to its essential rows only when
+       localStorage refuses the full envelope. */
+    try {
+      localStorage.setItem(VERIFIED_STORAGE_KEY, JSON.stringify(payload));
+    } catch (error) {
+      try {
+        var slim = {
+          version: STORE_VERSION,
+          products: vault.map(function (row) {
+            var lite = sanitize(row);
+            delete lite.images;
+            delete lite.description;
+            return lite;
+          }),
+          members: members,
+          lockedAt: new Date().toISOString(),
+        };
+        localStorage.setItem(VERIFIED_STORAGE_KEY, JSON.stringify(slim));
+      } catch (slimError) {
+        /* IndexedDB mirror still holds the full catalogue — recovery
+           remains possible even when every localStorage write failed. */
+      }
+    }
+    return vault.length;
+  };
+
+  /* ------------------------------------------------------------------ *
+   * Dedicated admin-added registry — "lurei_new_admin_products"
+   * ------------------------------------------------------------------ *
+   * Every piece that entered the catalogue through the Admin Dashboard's
+   * Save & Exit editor is mirrored here, alongside the master inventory,
+   * carrying its exact `dateAdded` creation timestamp. The registry is
+   * DERIVED from each committed store to stay perfectly in step: a product
+   * is "admin-added" when it neither belongs to the built-in defaults nor
+   * to the verified vault. */
+  var readAdminNew = function () {
+    var parsed = parseStoredJSON(readFlag(ADMIN_NEW_STORAGE_KEY), null);
+    var rows = null;
+    if (Array.isArray(parsed)) rows = parsed;
+    else if (isPlainProduct(parsed) && Array.isArray(parsed.products)) rows = parsed.products;
+    if (!rows) return [];
+    return rows.filter(isPlainProduct).map(sanitize).filter(isUsable);
+  };
+
+  var writeAdminNew = function (rows) {
+    var payload = {
+      version: STORE_VERSION,
+      products: rows,
+      updatedAt: new Date().toISOString(),
+    };
+    try {
+      localStorage.setItem(ADMIN_NEW_STORAGE_KEY, JSON.stringify(payload));
+    } catch (error) {}
+  };
+
+  /* A legacy admin piece (added before the vault existed) may arrive here
+     without a timestamp: it is stamped with the exact moment of this first
+     registration, and that is then permanent — the same "storage timestamp"
+     rule the vault follows. */
+  var syncAdminNewProducts = function (payload) {
+    if (!isPlainProduct(payload) || !Array.isArray(payload.products)) return false;
+    /* A blank store with no tombstones is an accidental-wipe signature
+       (reset, browser purge, failed write), not a real catalogue state:
+       the registry must stay untouched so its timestamped records can
+       rehydrate the catalogue via the recovery sweep. A deliberate
+       deletion always leaves at least one tombstone id behind. */
+    if (!payload.products.length && !(payload.removed && payload.removed.length)) {
+      return false;
+    }
+    var removed = {};
+    if (Array.isArray(payload.removed)) {
+      payload.removed.forEach(function (id) { removed[String(id)] = true; });
+    }
+
+    /* Classification uses the FROZEN vault core (the verified owner base as
+       it existed at first lock), not the live vault — the vault absorbs a
+       safety copy of every admin product too, and deriving against the
+       growing vault would silently drop admin rows on the next commit. */
+    var vault = readVerifiedCore();
+
+    var rows = [];
+    payload.products.forEach(function (product) {
+      if (!isPlainProduct(product) || isDummyItem(product)) return;
+      var clean = sanitize(product);
+      if (!isUsable(clean)) return;
+      var id = clean.id === null || clean.id === undefined ? "" : String(clean.id);
+      if (id && removed[id]) return;
+      var titleKey = normalizeTitle(clean.title);
+      if (titleKey && vault[titleKey]) return; /* verified base product, not new admin stock */
+      if (id && vault[id]) return;
+      if (!clean.dateAdded) clean.dateAdded = new Date().toISOString();
+      rows.push(clean);
+    });
+    writeAdminNew(rows);
+    return true;
+  };
+
+  /* ------------------------------------------------------------------ *
+   * Recycle bin — "lurei_recycle_bin"
+   * ------------------------------------------------------------------ *
+   * The permanent-delete workflow. A deletion never destroys data: the FULL
+   * product record (every A-to-Z detail, photos, price, stock, badge and
+   * its `dateAdded` stamp) moves into the bin with a `deletedAt` stamp.
+   * Restoring puts it straight back into the active catalogue; purging is
+   * the only destructive step, and it must be done deliberately. */
+  var readRecycleBin = function () {
+    var parsed = parseStoredJSON(readFlag(RECYCLE_BIN_STORAGE_KEY), null);
+    if (!Array.isArray(parsed)) return [];
+    return parsed.filter(function (entry) {
+      return isPlainProduct(entry) && isPlainProduct(entry.product);
+    });
+  };
+
+  var writeRecycleBin = function (entries) {
+    try {
+      localStorage.setItem(RECYCLE_BIN_STORAGE_KEY, JSON.stringify(entries));
+    } catch (error) {}
+  };
+
+  var addToRecycleBin = function (record) {
+    if (!record || !isPlainProduct(record.product)) return false;
+    var bin = readRecycleBin().filter(function (entry) {
+      return String(entry.id) !== String(record.id);
+    });
+    bin.unshift({
+      id: String(record.id),
+      product: sanitize(record.product),
+      deletedAt: normalizeDateAdded(record.deletedAt) || new Date().toISOString(),
+      origin: String(record.origin || "admin-dashboard"),
+    });
+    writeRecycleBin(bin);
+    return true;
+  };
+
+  var removeFromRecycleBin = function (ids) {
+    var wanted = {};
+    (Array.isArray(ids) ? ids : [ids]).forEach(function (id) {
+      if (id !== null && id !== undefined) wanted[String(id)] = true;
+    });
+    var bin = readRecycleBin();
+    var kept = bin.filter(function (entry) {
+      return !wanted[String(entry.id)];
+    });
+    if (kept.length === bin.length) return false;
+    writeRecycleBin(kept);
+    return true;
+  };
+
+  /* Product record finder for the bin capture + restore workflow: searches
+     ascending authority (active store, verified vault, admin registry). */
+  var findProductRecord = function (id) {
+    var key = String(id);
+    var hunt = [function () {
+      var storeProducts = readStore().products;
+      for (var i = 0; i < storeProducts.length; i++) {
+        if (String(storeProducts[i].id) === key) return storeProducts[i];
+      }
+      return null;
+    }, function () {
+      var vault = readVerifiedBase();
+      for (var i = 0; i < vault.length; i++) {
+        if (String(vault[i].id) === key) return vault[i];
+      }
+      return null;
+    }, function () {
+      var adminRows = readAdminNew();
+      for (var i = 0; i < adminRows.length; i++) {
+        if (String(adminRows[i].id) === key) return adminRows[i];
+      }
+      return null;
+    }];
+    for (var step = 0; step < hunt.length; step++) {
+      try {
+        var found = hunt[step]();
+        if (found) return found;
+      } catch (error) {}
+    }
+    return null;
+  };
+
+  /* Dummy/test seed rows are recognised by shape and by title. A generic
+     seed name ("Test Product", "Item 3", "Sample Widget", "demo") or an
+     explicit test flag proves a row was never real inventory, so it is
+     purged and registry-blocked instead of being allowed to replace or
+     pollute genuine owner products. Real pieces with descriptive names
+     never match any pattern below (whole-title match or scoped keyword),
+     and every purge is written to the recovery report for auditing. */
+  var DUMMY_TITLE_PATTERN =
+    /^[\s"'([{]*(test|testing|tester|test product|demo|demo product|dummy|dummy product|sample|sample product|example|example product|placeholder|untitled|new product|product name|product title|my product|default product|product|item|article|jewellery|jewelry|aaa+|asdf+|asdfgh|qwerty|tmp|temp|temporary)[\s\-–—_:.#,0-9)]*[\s"')\]}]*$/i;
+  var DUMMY_TITLE_KEYWORD_PATTERN =
+    /\b(test|testing|tester|dummy|placeholder|asdf|untitled|lorem ipsum)\b/i;
+  var DUMMY_FLAG_KEY_PATTERN = /^(isTest|isTester|isDummy|isPlaceholder|isSample|isDemo|isExample)$/;
+
+  var dummyReasonFor = function (product) {
+    if (!isPlainProduct(product)) return null;
+    for (var key in product) {
+      if (DUMMY_FLAG_KEY_PATTERN.test(key) && product[key] === true) {
+        return "flagged as test data (" + key + ")";
+      }
+    }
+    var title = String(product.title || product.name || "").trim();
+    if (!title) return null;
+    if (DUMMY_TITLE_PATTERN.test(title)) return "generic seed title: " + title;
+    if (DUMMY_TITLE_KEYWORD_PATTERN.test(title)) return "test keyword in title: " + title;
+    return null;
+  };
+
+  var isDummyItem = function (product) {
+    return dummyReasonFor(product) !== null;
+  };
+
+  /* Order line items and cart lines also carry a title and a price, but
+     they carry quantity fields with them; the catalogue never does. */
+  var isProductCandidate = function (value) {
+    if (!isPlainProduct(value)) return false;
+    var title = value.title !== undefined ? value.title : value.name;
+    if (typeof title !== "string" || !title.trim()) return false;
+    var price = toNumber(value.price);
+    if (price === null || price <= 0) return false;
+    return (
+      !("qty" in value) &&
+      !("quantity" in value) &&
+      !("productQuantity" in value) &&
+      !("lineTotal" in value) &&
+      !("customerName" in value) &&
+      !("customerPhone" in value)
+    );
+  };
+
+  /* Envelope sub-keys a snapshot may nest its product list under. */
+  var ENVELOPE_KEYS = [
+    "payload", "catalogue", "catalog", "data", "snapshot", "state",
+    "cache", "backup", "productsBackup", "inventory", "value",
+  ];
+
+  /* Recursively digs product-shaped records out of any parsed value:
+     bare arrays, {products:[...]} envelopes, {removed:[...]} tombstone
+     lists, and one nested envelope level (depth-capped for safety). */
+  var ingestValue = function (value, ctx, label, depth) {
+    depth = depth || 0;
+    if (!value || typeof value !== "object" || depth > 3) return;
+
+    if (Array.isArray(value)) {
+      for (var i = 0; i < value.length; i++) {
+        ingestValue(value[i], ctx, label, depth + 1);
+      }
+      return;
+    }
+
+    if (isProductCandidate(value)) {
+      ctx.consider(value, label);
+      return;
+    }
+
+    if (Array.isArray(value.products)) {
+      for (var p = 0; p < value.products.length; p++) {
+        ctx.consider(value.products[p], label);
+      }
+      if (Array.isArray(value.removed)) ctx.considerRemoved(value.removed);
+    } else if (Array.isArray(value.removed)) {
+      ctx.considerRemoved(value.removed);
+    }
+
+    if (depth < 3) {
+      for (var e = 0; e < ENVELOPE_KEYS.length; e++) {
+        var inner = value[ENVELOPE_KEYS[e]];
+        if (inner && typeof inner === "object") {
+          ingestValue(inner, ctx, label, depth + 1);
+        }
+      }
+    }
+  };
+
+  /* Storage keys that are definitely not catalogue caches: known entity
+     stores (cart/wishlist/orders/auth) plus guards against settings and
+     session records. Unknown keys outside these patterns are still
+     scanned generically, so a renamed backup key is never missed. */
+  var NON_CATALOGUE_STORAGE_KEYS = [
+    "lurei_cart", "lurei_wishlist", "lurei_orders", "lurei_user", "lurei_currency",
+    "lurei_created_categories", "lurei_admin_editing", "lurei_admin_edit_active",
+    "lurei_gas_admin_session", "adminLoggedIn", "isAdminLoggedIn",
+    "is_admin_editing_mode",
+    /* The recycle bin holds DELIBERATELY deleted products. It must never be
+       treated as a catalogue cache: sweeping it would resurrect pieces the
+       owner removed, defeating the whole delete workflow. */
+    RECYCLE_BIN_STORAGE_KEY,
+  ];
+  var NON_CATALOGUE_KEY_PATTERN =
+    /(^|[_\-.])(cart|wishlist|order|invoice|user|auth|login|session|currency|categor|theme|consent|visit|config|flag|log|search|form|thank)(s)?($|[_\-.0-9])/i;
+
+  var recoverFromAllStoragePromise = null;
+  var recoverFromAllStorage = async function (force) {
+    /* One sweep in flight at a time; overlapping invocations join it.
+       The memo clears as soon as a run completes so a later storage
+       event, channel message, or page entry point can start a FRESH
+       sweep over every cache again — recovery is never a one-shot. */
+    if (recoverFromAllStoragePromise && force !== true) {
+      return recoverFromAllStoragePromise;
+    }
+    var run = (async function () {
+      var snapshot = readStore();
+      var activeRemoved = snapshot.removed.slice();
+      var merged = [];
+      var indexByKey = {};
+      var removedCollector = [];
+      var purgedThisRun = [];
+      var layers = {};
+
+      var scoreOf = function (product) {
+        var score = 0;
+        if (product.image) score += 2;
+        if (product.images && product.images.length) score += Math.min(product.images.length, 5);
+        if (product.description) score += 1 + Math.min(String(product.description).length / 200, 2);
+        if (product.badge) score += 1;
+        if (product.stock !== null && product.stock !== undefined) score += 1;
+        if (product.id !== null && product.id !== undefined && String(product.id) !== "") score += 2;
+        return score;
+      };
+
+      var numericIdOf = function (product) {
+        var num = toNumber(product.id);
+        return num === null ? -1 : num;
+      };
+
+      var recordPurge = function (entry, source) {
+        var reason = dummyReasonFor(entry);
+        if (!reason) return;
+        var title = String(entry.title || entry.name || "").trim();
+        if (!title) return;
+        purgedThisRun.push({ id: entry.id == null ? "" : String(entry.id), title: title, source: source || "", reason: reason });
+      };
+
+      /* Merge director: deduplicates by id AND by normalized title, and
+         on conflicts keeps the richer record (more photos, description,
+         badge, stock, stable id). Equal records prefer the higher
+         numeric id, which is the one a later save assigned. */
+      var consider = function (entry, label) {
+        var layer = label || "unknown";
+        layers[layer] = (layers[layer] || 0) + 1;
+        if (!isPlainProduct(entry)) return;
+        if (isDummyItem(entry)) { recordPurge(entry, layer); return; }
+
+        var clean = sanitize(entry);
+        if (!isUsable(clean)) return;
+
+        var id = clean.id === null || clean.id === undefined ? "" : String(clean.id);
+        /* A tombstone in the live store always wins over an older cached
+           copy of the same id — the owner genuinely deleted that piece. */
+        if (id && activeRemoved.indexOf(id) !== -1) return;
+
+        var titleKey = normalizeTitle(clean.title);
+        var primaryKey = id || titleKey;
+        if (!primaryKey) return;
+
+        var position = indexByKey[primaryKey];
+        if (position === undefined && primaryKey !== titleKey) {
+          position = indexByKey[titleKey];
+        }
+
+        if (position === undefined) {
+          indexByKey[primaryKey] = merged.length;
+          if (titleKey && titleKey !== primaryKey) indexByKey[titleKey] = merged.length;
+          merged.push(clean);
+          return;
+        }
+
+        var current = merged[position];
+        var takeChallenger =
+          !isDummyItem(clean) &&
+          (scoreOf(clean) > scoreOf(current) ||
+            (scoreOf(clean) === scoreOf(current) && numericIdOf(clean) > numericIdOf(current)));
+
+        if (takeChallenger) {
+          merged[position] = clean;
+          indexByKey[primaryKey] = position;
+          if (titleKey && titleKey !== primaryKey) indexByKey[titleKey] = position;
+        }
+      };
+
+      var considerRemoved = function (value) {
+        if (value === null || value === undefined) return;
+        var list = Array.isArray(value) ? value : [value];
+        list.forEach(function (entry) {
+          var key = String(entry);
+          if (key && removedCollector.indexOf(key) === -1) removedCollector.push(key);
+        });
+      };
+
+      var ctx = {
+        consider: consider,
+        considerRemoved: considerRemoved,
+      };
+
+      /* Seed with the permanent verified vault first: locked owner products
+         restore even when the active store AND every other cache were
+         simultaneously wiped. Then the live store so its records always
+         survive a sweep even when every other cache is empty. */
+      readVerifiedBase().forEach(function (product) {
+        consider(product, "verified vault");
+      });
+      readAdminNew().forEach(function (product) {
+        consider(product, "admin registry");
+      });
+      snapshot.products.forEach(function (product) {
+        consider(product, "active store");
+      });
+
+      /* Generic sweep helper: every key of a Storage area, one at a time.
+         Catalogue-owned keys are parsed with their specific record shape;
+         every other non-denied key is inspected generically. */
+      var sweepArea = function (area, areaLabel) {
+        var keys = [];
+        try {
+          for (var index = 0; index < area.length; index++) {
+            var key = area.key(index);
+            if (key) keys.push(key);
+          }
+        } catch (error) {
+          return;
+        }
+
+        keys.forEach(function (key) {
+          try {
+            var raw = area.getItem(key);
+            if (!raw) return;
+            var first = raw.charAt(0);
+            if (first !== "[" && first !== "{") return;
+
+            /* The catalogue's own chunked keys: parse each independently
+               so a broken generation still surrenders healthy chunks. */
+            if (key.indexOf(STORE_CHUNK_PREFIX) === 0) {
+              var chunk = parseStoredJSON(raw, null);
+              if (Array.isArray(chunk)) {
+                chunk.forEach(function (entry) { consider(entry, areaLabel + ": chunk"); });
+              }
+              return;
+            }
+            if (key === MASTER_STORAGE_KEY) {
+              ingestValue(parseStoredJSON(raw, null), ctx, areaLabel + ": master key", 0);
+              return;
+            }
+            if (key === STORE_META_KEY) {
+              var meta = parseStoredJSON(raw, null);
+              if (meta && isPlainProduct(meta) && Array.isArray(meta.removed)) {
+                considerRemoved(meta.removed);
+              }
+              return;
+            }
+
+            if (NON_CATALOGUE_STORAGE_KEYS.indexOf(key) !== -1) return;
+            if (NON_CATALOGUE_KEY_PATTERN.test(key)) return;
+
+            /* Unknown key that happens to hold product data: sweep it. */
+            ingestValue(parseStoredJSON(raw, null), ctx, areaLabel + ": " + key, 0);
+          } catch (error) {}
+        });
+      };
+
+      /* 1. Every localStorage key (chunked catalogue, legacy master,
+         tombstones, and any unknown key holding product data). */
+      sweepArea(localStorage, "localStorage");
+
+      /* 2. Every sessionStorage key (tab-scoped snapshots). */
+      try {
+        if (typeof sessionStorage !== "undefined") sweepArea(sessionStorage, "sessionStorage");
+      } catch (error) {}
+
+      /* 3. Every IndexedDB database, every object store, every record. */
+      var listDatabases = function () {
+        return new Promise(function (done) {
+          try {
+            if (typeof indexedDB === "undefined" || !indexedDB) { done([]); return; }
+            if (typeof indexedDB.databases !== "function") { done(["lurei_catalogue"]); return; }
+            indexedDB.databases().then(function (infos) {
+              var names = (Array.isArray(infos) ? infos : [])
+                .map(function (info) { return info && info.name; })
+                .filter(Boolean);
+              if (names.indexOf("lurei_catalogue") === -1) names.push("lurei_catalogue");
+              done(names);
+            }).catch(function () { done(["lurei_catalogue"]); });
+          } catch (error) {
+            done(["lurei_catalogue"]);
+          }
+        });
+      };
+
+      try {
+        var databaseNames = await listDatabases();
+        for (var dbIndex = 0; dbIndex < databaseNames.length; dbIndex++) {
+          var dbName = databaseNames[dbIndex];
+          try {
+            var db = await new Promise(function (resolveDb) {
+              var openRequest = indexedDB.open(dbName);
+              openRequest.onsuccess = function () { resolveDb(openRequest.result); };
+              openRequest.onerror = function () { resolveDb(null); };
+              openRequest.onblocked = function () { resolveDb(null); };
+              setTimeout(function () { resolveDb(null); }, 2000);
+            });
+            if (!db) continue;
+
+            var storeNames = Array.prototype.slice.call(db.objectStoreNames || []);
+            for (var storeIndex = 0; storeIndex < storeNames.length; storeIndex++) {
+              var storeName = storeNames[storeIndex];
+              await new Promise(function (resolveStore) {
+                try {
+                  var tx = db.transaction(storeName, "readonly");
+                  var cursorRequest = tx.objectStore(storeName).openCursor();
+                  cursorRequest.onsuccess = function (event) {
+                    var cursor = event.target.result;
+                    if (!cursor) { resolveStore(); return; }
+                    var record = cursor.value;
+                    if (record && typeof record === "object") {
+                      if (record.payload && isPlainProduct(record.payload)) {
+                        /* The known mirror record shape
+                           { updatedAt, payload: { products, removed } }. */
+                        var payload = record.payload;
+                        if (Array.isArray(payload.products)) {
+                          payload.products.forEach(function (entry) {
+                            consider(entry, "IndexedDB " + dbName + " / " + storeName);
+                          });
+                        }
+                        if (Array.isArray(payload.removed)) {
+                          considerRemoved(payload.removed);
+                        }
+                      } else {
+                        ingestValue(record, ctx, "IndexedDB " + dbName + " / " + storeName, 0);
+                      }
+                    }
+                    cursor.continue();
+                  };
+                  cursorRequest.onerror = function () { resolveStore(); };
+                } catch (error) { resolveStore(); }
+              });
+            }
+            try { db.close(); } catch (error) {}
+          } catch (error) {}
+        }
+      } catch (error) {}
+
+      /* 4. Purge dummies that survived inside the live store's own
+         records (seeded through consider() above) and persist them in
+         the registry so no data source can ever re-seed them. */
+      addToPurgeRegistry(purgedThisRun);
+
+      /* 5. Build the authoritative payload. Products always outrank
+         tombstones from older generations; only ids that exist as
+         tombstones in the live store (genuine deletions) stay removed. */
+      var removedSet = {};
+      removedCollector.forEach(function (key) { removedSet[key] = true; });
+      purgedThisRun.forEach(function (entry) {
+        if (entry.id) removedSet[entry.id] = true;
+      });
+      merged.forEach(function (product) {
+        delete removedSet[String(product.id)];
+      });
+      var finalRemoved = Object.keys(removedSet);
+
+      /* 6. Write the merged catalogue back to the active layers only
+         when the sweep actually changed something, so healthy stores
+         are never churned pointlessly. */
+      var signatureOf = function (list) {
+        return list
+          .map(function (product) {
+            return [
+              String(product.id),
+              normalizeTitle(product.title),
+              String(product.price),
+              product.image || "",
+              (product.images && product.images.join(",")) || "",
+              String(product.description || ""),
+              String(product.badge || ""),
+              String(product.stock),
+              String(product.outOfStock),
+            ].join("~");
+          })
+          .sort()
+          .join("||");
+      };
+      var didChange =
+        purgedThisRun.length > 0 ||
+        signatureOf(merged) !== signatureOf(snapshot.products) ||
+        finalRemoved.join(",") !== activeRemoved.join(",");
+
+      if (didChange) {
+        try {
+          writeStore({ products: merged, removed: finalRemoved });
+          notify();
+        } catch (error) {}
+      }
+
+      lastRecoveryReport = {
+        at: new Date().toISOString(),
+        recoveredCount: merged.length,
+        changed: didChange,
+        purgedCount: purgedThisRun.length,
+        purged: purgedThisRun,
+        removedCount: finalRemoved.length,
+        layers: layers,
+      };
+
+      /* Every successful sweep refreshes the verified master inventory
+         that writeStore() uses as a protective merge source on saves, and
+         re-merges it into the permanent vault. The vault call runs on EVERY
+         sweep completion (not just on change) so a freshly recovered
+         catalogue is locked in even when the sweep found nothing new. */
+      if (merged.length) {
+        lastVerifiedInventory = merged.slice();
+        try {
+          var vaultCount = ensureVerifiedVault(merged, finalRemoved);
+          if (vaultCount !== null) lastRecoveryReport.vaultCount = vaultCount;
+        } catch (error) {}
+      }
+
+      if (merged.length || purgedThisRun.length) {
+        try {
+          console.groupCollapsed(
+            "[Storage Recovery] " + merged.length + " owner product(s) verified" +
+            (purgedThisRun.length ? ", " + purgedThisRun.length + " dummy/test row(s) purged" : "")
+          );
+          console.log("Sources scanned:", layers);
+          if (purgedThisRun.length) console.log("Purged dummy rows:", purgedThisRun);
+          console.log("Report:", lastRecoveryReport);
+          console.groupEnd();
+        } catch (error) {}
+      }
+
+      return merged;
+    })();
+
+    recoverFromAllStoragePromise = run;
+
+    var releaseMemo = function () {
+      if (recoverFromAllStoragePromise === run) recoverFromAllStoragePromise = null;
+    };
+    run.then(releaseMemo, releaseMemo);
+
+    return run;
+  };
+
+  /* Secondary sweeps (storage events / channel messages) are debounced so
+     a dashboard commit that writes one storage event per chunk coalesces
+     into a single fresh sweep instead of a burst of them. */
+  var secondarySweepTimer = null;
+  var scheduleSecondarySweep = function () {
+    clearTimeout(secondarySweepTimer);
+    secondarySweepTimer = setTimeout(function () {
+      secondarySweepTimer = null;
+      recoverFromAllStorage().then(function () {}).catch(function () {});
+    }, 500);
   };
 
   if (typeof window !== "undefined" && window.addEventListener) {
@@ -1271,10 +2242,90 @@
     if (typeof BroadcastChannel !== "undefined") {
       catalogueChannel = new BroadcastChannel("lurei_catalogue_sync");
       catalogueChannel.onmessage = function () {
-        setTimeout(hydrateFromIndexedDb, 300);
+        setTimeout(function () {
+          /* Promote a newer mirror payload into localStorage, then run a
+             fresh sweep so owner products added in another tab (or in a
+             dashboard that wrote straight to IndexedDB) are merged into
+             this tab's catalogue and re-rendered automatically. */
+          hydrateFromIndexedDb();
+          scheduleSecondarySweep();
+        }, 300);
       };
     }
   } catch (error) {}
+
+  /* Wipe-guard for every save path. If the active store somehow came back
+     empty or partial while a completed sweep holds a verified master
+     inventory (quota wipe, browser data purge, half-written generation),
+     the verified owner products are re-attached before the write is
+     allowed through. The protection source is the union of every durable
+     layer: the newest sweep result PLUS the permanent verified vault PLUS
+     the dedicated admin-added registry — so even a browser data purge
+     between sweeps cannot lose a single piece. Genuine deletions are
+     honoured: any id the save carries in its tombstone list stays
+     excluded, and admin deletions made through store.remove() always
+     carry that tombstone. */
+  var verifiedProtectionList = function () {
+    var seen = {};
+    var seenKey = function (product) {
+      var parts = [];
+      if (product.id !== null && product.id !== undefined && String(product.id) !== "") {
+        parts.push(String(product.id));
+      }
+      var titleKey = normalizeTitle(product.title);
+      if (titleKey) parts.push(titleKey);
+      return parts.join("|");
+    };
+    var out = [];
+    [
+      lastVerifiedInventory,
+      readVerifiedBase(),
+      readAdminNew(),
+    ].forEach(function (layer) {
+      (Array.isArray(layer) ? layer : []).forEach(function (product) {
+        if (!isPlainProduct(product)) return;
+        var key = seenKey(product);
+        if (!key || seen[key]) return;
+        seen[key] = true;
+        out.push(product);
+      });
+    });
+    return out;
+  };
+
+  var reinforceWithVerifiedInventory = function (payload) {
+    var protection = verifiedProtectionList();
+    if (!protection.length) return payload;
+
+    var presentById = {};
+    var presentByTitle = {};
+    payload.products.forEach(function (product) {
+      var id = product.id === null || product.id === undefined ? "" : String(product.id);
+      if (id) presentById[id] = true;
+      var titleKey = normalizeTitle(product.title);
+      if (titleKey) presentByTitle[titleKey] = true;
+    });
+
+    var missing = protection.filter(function (item) {
+      if (payload.removed.indexOf(String(item.id)) !== -1) return false;
+      var titleKey = normalizeTitle(item.title);
+      return !presentById[String(item.id)] && !(titleKey && presentByTitle[titleKey]);
+    });
+
+    if (!missing.length) return payload;
+
+    console.warn(
+      "[Catalogue] active store held only " + payload.products.length +
+      " product(s); re-attaching " + missing.length +
+      " verified owner product(s) before save."
+    );
+
+    return {
+      version: STORE_VERSION,
+      products: payload.products.concat(missing),
+      removed: payload.removed.slice(),
+    };
+  };
 
   var writeStore = function (store) {
     var payload = {
@@ -1282,6 +2333,15 @@
       products: Array.isArray(store.products) ? store.products : [],
       removed: Array.isArray(store.removed) ? store.removed : [],
     };
+    payload = reinforceWithVerifiedInventory(payload);
+
+    /* Dual-storage write-through: every committed catalogue change also
+       (1) merges any new owner products into the permanent verified vault,
+       so a later wipe can always be reversed, and (2) re-derives the
+       dedicated admin-added registry with its exact dateAdded stamps. */
+    try { ensureVerifiedVault(payload.products, payload.removed); } catch (vaultError) {}
+    try { syncAdminNewProducts(payload); } catch (adminNewError) {}
+
     var updatedAt = nextWriteStamp();
     var localSaved = persistLocal(payload, updatedAt);
 
@@ -1361,7 +2421,20 @@
     var merged = [];
     var seen = new Set();
 
+    /* Rows that the recovery sweep identified as dummy/test seed data are
+       permanently blocked from re-entering the catalogue through any
+       default list (Sheets payload, built-in catalogue, legacy dataset).
+       The genuine store inventory below is never touched by this filter. */
+    var purgedTitles = {};
+    readPurgeRegistry().forEach(function (entry) {
+      var purgedKey = normalizeTitle(entry.title);
+      if (purgedKey) purgedTitles[purgedKey] = true;
+    });
+
     base.forEach(function (product) {
+      if (isDummyItem(product)) return;
+      var baseTitleKey = normalizeTitle(product.title || product.name);
+      if (baseTitleKey && purgedTitles[baseTitleKey]) return;
       var key = String(product.id);
       if (removed.indexOf(key) !== -1) return;
       var override = byId.get(key);
@@ -1427,6 +2500,7 @@
         badge: seed.badge,
         stock: seed.stock,
         outOfStock: seed.outOfStock,
+        dateAdded: seed.dateAdded,
       });
 
       store.products.push(Object.assign({}, created, patch));
@@ -1497,9 +2571,21 @@
         })
       );
 
-      return resolve(defaults).filter(function (product) {
-        return !base.has(String(product.id));
-      });
+      /* Chronological += newest first: each admin publish carries its exact
+         dateAdded stamp, so the arrivals rail reads like the boutique's own
+         timeline — and pieces published without a stamp (legacy) fall to
+         the end instead of jumping ahead. */
+      return resolve(defaults)
+        .filter(function (product) {
+          return !base.has(String(product.id));
+        })
+        .sort(function (a, b) {
+          var at = normalizeDateAdded(a.dateAdded);
+          var bt = normalizeDateAdded(b.dateAdded);
+          var an = at ? Date.parse(at) : 0;
+          var bn = bt ? Date.parse(bt) : 0;
+          return bn - an;
+        });
     },
 
     add: function (input) {
@@ -1517,6 +2603,10 @@
         badge: input.badge,
         stock: stockFor(input.stock),
         outOfStock: input.outOfStock === true,
+        /* Exact creation timestamp of this admin publish. Every later save
+           preserves it verbatim (see sanitize()), so the "when was this
+           stored?" answer is permanent evidence, not a moving target. */
+        dateAdded: new Date().toISOString(),
       });
 
       if (!isUsable(product)) {
@@ -1563,33 +2653,133 @@
       return store.update(id, patch);
     },
 
-    /* Hard delete. Recorded as a tombstone as well, because the built-in
-       defaults would otherwise put the product straight back on the next
-       page load. */
+    /* Soft delete via the recycle-bin workflow. The FULL product record —
+       every A-to-Z detail, photos, price, stock, badge and its dateAdded
+       stamp — is captured into `lurei_recycle_bin` with a `deletedAt`
+       timestamp BEFORE anything leaves the active catalogue, so a delete is
+       always reversible and the main storage is never broken by it. The
+       tombstone still parks the id so defaults and the verified vault
+       cannot resurrect the piece behind the owner's back. Permanent
+       deletion is a separate, deliberate act: store.purgeFromBin(). */
     remove: function (id) {
       var key = String(id);
       var next = readStore();
 
+      var victim = null;
+      next.products.some(function (p) {
+        if (String(p.id) === key) {
+          victim = p;
+          return true;
+        }
+        return false;
+      });
+      if (!victim) victim = findProductRecord(key);
+
       next.products = next.products.filter(function (p) {
         return String(p.id) !== key;
       });
+
+      if (victim) {
+        addToRecycleBin({
+          id: key,
+          product: victim,
+          deletedAt: new Date().toISOString(),
+          origin: "storefront-editor",
+        });
+      }
 
       if (next.removed.indexOf(key) === -1) next.removed.push(key);
       commit(next);
       return true;
     },
 
+    /* Reverse of remove(): clears the tombstone and — when the record no
+       longer lives in the active store — puts the binned copy straight
+       back, byte-for-byte, original dateAdded intact. */
     restore: function (id) {
       var key = String(id);
       var next = readStore();
       next.removed = next.removed.filter(function (entry) {
         return entry !== key;
       });
+
+      var present = next.products.some(function (p) {
+        return String(p.id) === key;
+      });
+      if (!present) {
+        var seed = null;
+        readRecycleBin().some(function (entry) {
+          if (String(entry.id) === key) {
+            seed = entry.product;
+            return true;
+          }
+          return false;
+        });
+        if (!seed) seed = findProductRecord(key);
+        if (seed) {
+          var revived = sanitize(seed);
+          if (isUsable(revived)) next.products.push(revived);
+        }
+      }
+
+      removeFromRecycleBin([key]);
       commit(next);
       return true;
     },
 
+    /* ---------------- Recycle bin workflow ---------------- */
+
+    /* Everything currently resting in `lurei_recycle_bin`, newest deletion
+       first, each with its full product record and deletedAt stamp. */
+    bin: function () {
+      return readRecycleBin();
+    },
+
+    /* Restore a binned product into the live catalogue (see restore()). */
+    restoreFromBin: function (id) {
+      return store.restore(id);
+    },
+
+    /* PERMANENT delete: the only destructive step in the workflow. The
+       binned record is erased; the tombstone stays, so the piece can never
+       drift back in through defaults, the vault or any cache. */
+    purgeFromBin: function (id) {
+      removeFromRecycleBin([String(id)]);
+      return true;
+    },
+
+    /* Permanently erase every binned record at once. */
+    emptyBin: function () {
+      writeRecycleBin([]);
+      return true;
+    },
+
+    /* The dedicated admin-added registry (lurei_new_admin_products): every
+       piece published through the Admin Dashboard, with its exact
+       dateAdded stamp, newest first. */
+    adminNew: function () {
+      return readAdminNew().sort(function (a, b) {
+        var at = normalizeDateAdded(a.dateAdded);
+        var bt = normalizeDateAdded(b.dateAdded);
+        var an = at ? Date.parse(at) : 0;
+        var bn = bt ? Date.parse(bt) : 0;
+        return bn - an;
+      });
+    },
+
+    /* The permanent verified vault (lurei_verified_products). */
+    verified: function () {
+      return readVerifiedBase();
+    },
+
     reset: function () {
+      /* ONLY the active catalogue layers are cleared here. The permanent
+         verified vault (lurei_verified_products), the admin-added registry
+         (lurei_new_admin_products) and the recycle bin
+         (lurei_recycle_bin) are deliberately NEVER touched — that is what
+         makes the verified owner inventory immune to accidental wipes.
+         The next recovery sweep re-hydrates the catalogue from the vault
+         and the registry automatically. */
       try {
         var keys = [MASTER_STORAGE_KEY, STORE_META_KEY];
 
@@ -1655,13 +2845,119 @@
     isEditSessionActive: isEditSessionActive,
     isEditIntentActive: isEditIntentActive,
     shouldEdit: shouldEdit,
+    hydrateFromIndexedDb: hydrateFromIndexedDb,
+    recoverFromAllStorage: recoverFromAllStorage,
+    /* Last sweep result: { recoveredCount, changed, purgedCount, purged,
+       layers }. The storefront boot and collections.html both surface it
+       in the console for auditing. */
+    recoveryReport: function () { return lastRecoveryReport; },
+    /* Titles permanently blocked as dummy/test seed rows. */
+    purgedItems: readPurgeRegistry,
+    /* Dual-storage lifecycle surface:
+       verifiedBase()  — the permanent lock on lurei_verified_products.
+       adminNewProducts() — every Admin Dashboard publish from
+                            lurei_new_admin_products, dateAdded newest first.
+       recycleBin() / restoreFromBin(id) / purgeFromBin(id) / emptyBin() —
+                            the full permanent-delete workflow. */
+    verifiedBaseKey: VERIFIED_STORAGE_KEY,
+    adminNewKey: ADMIN_NEW_STORAGE_KEY,
+    recycleBinKey: RECYCLE_BIN_STORAGE_KEY,
+    verifiedBase: readVerifiedBase,
+    adminNewProducts: function () {
+      return store.adminNew();
+    },
+    recycleBin: readRecycleBin,
+    restoreFromBin: function (id) { return store.restoreFromBin(id); },
+    purgeFromBin: function (id) { return store.purgeFromBin(id); },
+    emptyRecycleBin: function () { return store.emptyBin(); },
+    /* Disk-level safety net: downloads a single JSON file holding the
+       verified vault, the admin-added registry, the recycle bin and the
+       live catalogue — a 200% recovery guarantee that survives even a
+       full browser wipe, because the file lives outside it. */
+    exportCatalogueBackup: function () {
+      var snapshot = {
+        exportedAt: new Date().toISOString(),
+        verified: readVerifiedBase(),
+        adminNew: readAdminNew(),
+        recycleBin: readRecycleBin(),
+        catalogue: readStore(),
+      };
+      var blob = new Blob([JSON.stringify(snapshot, null, 2)], {
+        type: "application/json",
+      });
+      var link = document.createElement("a");
+      link.href = URL.createObjectURL(blob);
+      link.download = "lurei-catalogue-backup-" +
+        new Date().toISOString().replace(/[:.]/g, "-") + ".json";
+      document.body.appendChild(link);
+      link.click();
+      setTimeout(function () {
+        URL.revokeObjectURL(link.href);
+        link.remove();
+      }, 500);
+      return true;
+    },
+    /* Re-renders every subscriber from the store — used by the
+       collections.html recovery entry point to re-seed the shelf when a
+       sweep recovered items the current paint does not show. */
+    refreshFromStore: notify,
   };
 
-  /* Any other tab on the site re-renders the moment the catalogue moves. */
+  /* Any other tab on the site re-renders the moment the catalogue moves,
+     and every catalogue move from another tab also triggers a fresh
+     storage sweep, so owner products added in the dashboard (or recovered
+     there) can never be missed by a tab that was already open. */
   window.addEventListener("storage", function (event) {
     if (!isMasterStorageKey(event.key)) return;
     notify();
+    scheduleSecondarySweep();
   });
+
+  /* Keep the durable mirror in step with the newest local state on every
+     load: if a commit only reached the chunked keys (mirror write lost or
+     deferred), the local envelope is pushed to IndexedDB, so a later
+     quota wipe or browser data purge can always be fully reversed by
+     hydrateFromIndexedDb(). */
+  var syncMirrorFreshness = function () {
+    readCatalogueDb()
+      .then(function (record) {
+        var envelope = readEnvelope();
+        if (!envelope || !envelope.payload) return;
+        var localStamp = Number(envelope.updatedAt) || 0;
+        var mirrorStamp = record && Number(record.updatedAt) || 0;
+        if (localStamp > mirrorStamp) {
+          writeCatalogueDb(envelope.payload, localStamp);
+        }
+      })
+      .catch(function () {});
+  };
+
+  /* IMMEDIATE-ON-LOAD CONSOLIDATION. An async function executes
+     synchronously up to its first await, so this call merges every
+     fragmented chunk key, the legacy master key, sessionStorage, and any
+     unknown cache into the master inventory — and writes the merged
+     result back to the primary localStorage keys and the IndexedDB
+     mirror — before the storefront boot below renders its grid. The boot
+     awaits this same run via the shared memo before paint. */
+
+  /* Seed the wipe-guard from the permanent vault the instant the module
+     loads, so even the very first save of this session is protected by
+     the already-locked owner inventory. */
+  try {
+    lastVerifiedInventory = readVerifiedBase();
+  } catch (error) {}
+
+  try {
+    var earlyRecovery = recoverFromAllStorage();
+    Promise.resolve(earlyRecovery).then(function () {
+      /* Any pending debounced mirror write is flushed right away so the
+         durable layer holds the consolidated inventory immediately. */
+      flushIndexedDbWrite();
+      syncMirrorFreshness();
+    }, function () {
+      syncMirrorFreshness();
+    });
+  } catch (error) {}
 
   /* Promote a newer IndexedDB payload (e.g. saved after a localStorage quota
      failure) as soon as the database is available. */
@@ -2277,12 +3573,15 @@
     wrap.querySelector("[data-lurei-cancel]").addEventListener("click", closeInline);
 
     wrap.querySelector("[data-lurei-delete]").addEventListener("click", function () {
-      if (!window.confirm('Delete "' + product.title + '" from the storefront for good?')) {
+      if (!window.confirm(
+        'Move "' + product.title + '" to the Recycle Bin?\n\n' +
+        "It leaves the storefront immediately, but its full record stays in lurei_recycle_bin until you permanently delete it from the Admin Dashboard."
+      )) {
         return;
       }
       try {
         store.remove(product.id);
-        announce('"' + product.title + '" deleted.');
+        announce('"' + product.title + '" moved to the Recycle Bin.');
       } catch (error) {
         flashError(wrap, error.message);
       }
@@ -3506,70 +4805,7 @@ var onGridClick = function (event) {
     }
   };
 
-  /* ------------------------------------------------------------------ *
-   * 2. Fallback product catalogue (local asset mirror)
-   * ------------------------------------------------------------------ *
-   * Images live in exactly two folders: ./assets/products/ (main
-   * catalogue) and ./assets/products/ (later arrivals). There is NO
-   * assets/images/products/ directory - an earlier build rewrote paths
-   * into one, so every card 404'd and fell back to its placeholder.
-   * Each entry below points at a file that exists, with its real casing,
-   * because static hosts are case-sensitive.
-   * ------------------------------------------------------------------ */
- const products = [
-    { id: 1, name: "Aura Golden Stud", price: "AED 25.00", category: "under-30", type: "earrings", image: "./assets/products/aura-golden-stud.jpg", desc: "Textured gold aura stud earrings." },
-    { id: 2, name: "Cartier Inspired Bracelet", price: "AED 30.00", category: "under-30", type: "bracelets", image: "./assets/products/cartier-inspired-bracelet.jpg", desc: "Luxury textured gold band bracelet." },
-    { id: 3, name: "Crystal Ash Hoops", price: "AED 20.00", category: "under-30", type: "earrings", image: "./assets/products/crystal-ash-hoops.jpg", desc: "Sparkling crystal ash luxury hoops." },
-    { id: 4, name: "The Crystal Chain", price: "AED 30.00", category: "under-30", type: "necklace", image: "./assets/products/crystal-chain.jpg", desc: "Minimal sparkling crystal accent silver chain." },
-    { id: 5, name: "Crystal Cherry Hoops", price: "AED 20.00", category: "under-30", type: "earrings", image: "./assets/products/crystal-cherry-hoops.jpg", desc: "Vibrant cherry red crystal drop hoop earrings." },
-    { id: 6, name: "Golden Nova Mini Hoops", price: "AED 15.00", originalPrice: "AED 20.00", category: "under-30", type: "earrings", image: "./assets/products/golden-nova-mini-hoops.jpg", desc: "Mini golden starburst huggie hoops." },
-    { id: 7, name: "Golden Bamboo Drops", price: "AED 30.00", category: "under-30", type: "earrings", image: "./assets/products/golden-bamboo-drops.jpg", desc: "Structured bamboo textured gold drop earrings." },
-    { id: 8, name: "Lavender Bloom", price: "AED 24.00", category: "under-30", type: "ring", image: "./assets/products/lavender-bloom.jpg", desc: "Lavender crystals in rose gold accents." },
-    { id: 9, name: "Melted Metal Prism", price: "AED 30.00", category: "under-30", type: "earrings", image: "./assets/products/melted-metal-prism.jpg", desc: "Melted metal prism in gold luxury finish." },
-    { id: 10, name: "Pearl Petals Drops", price: "AED 45.00", category: "under-50", type: "earrings", image: "./assets/products/pearl-petals-drops.jpg", desc: "Lustrous pearl petal cluster drop earrings." },
-    { id: 11, name: "Petal Stud", price: "AED 20.00", category: "under-30", type: "earrings", image: "./assets/products/Petal-stud.jpg", desc: "Delicate flower petal stud earrings." },
-    { id: 12, name: "Red Stone Hoops", price: "AED 20.00", category: "under-30", type: "earrings", image: "./assets/products/red-stone-hoops.jpg", desc: "Ruby red stone retro hoop collection." },
-    { id: 13, name: "Retro Red Hoops", price: "AED 45.00", category: "under-50", type: "earrings", image: "./assets/products/retro-red-hoops.jpg", desc: "Ruby red accent vintage drop hoops." },
-    { id: 14, name: "Sapphire Retro Hoops", price: "AED 30.00", category: "under-30", type: "earrings", image: "./assets/products/sapphire-retro-hoops.jpg", desc: "Deep sapphire stone retro hoops." },
-    { id: 15, name: "Screw Oval Bracelet", price: "AED 35.00", category: "under-50", type: "bracelets", image: "./assets/products/Screw-oval bracelet.jpg", desc: "Minimalist luxury screw oval gold bangles." },
-    { id: 16, name: "Seashell Toggle Chain", price: "AED 40.00", category: "under-50", type: "necklace", image: "./assets/products/seashell-toggle-chain.jpg", desc: "Elegant gold toggle chain with seashell charm." },
-    { id: 17, name: "Serene Heart Pendant", price: "AED 45.00", category: "under-50", type: "necklace", image: "./assets/products/serene-heart-pendant.jpg", desc: "Toggle chain with dual chains and vintage heart." },
-    { id: 18, name: "Silver Selen Bangles", price: "AED 35.00", category: "under-50", type: "bracelets", image: "./assets/products/Silver-selen bangles.jpg", desc: "Sculptural wave silver selen bangle bracelet." },
-    { id: 19, name: "Silver Loop Studs", price: "AED 25.00", category: "under-30", type: "earrings", image: "./assets/products/Silver-Loop-studs.jpg", desc: "Minimalist luxury silver loop stud earrings." },
-    { id: 20, name: "The Eternal Love", price: "AED 35.00", category: "under-50", type: "necklace", image: "./assets/products/the-eternal-love.jpg", desc: "Vintage puffy heart pendant with a classic link." },
-    { id: 21, name: "The Fourth Stone Pendant", price: "AED 30.00", category: "under-30", type: "necklace", image: "./assets/products/the-fourth-stone-pendant.jpg", desc: "Minimalist single stone gold pendant chain." },
-    { id: 22, name: "The Sapphire Heart Pendant", price: "AED 30.00", category: "under-30", type: "necklace", image: "./assets/products/the-sapphire-heart-pendant.jpg", desc: "Deep sapphire stone heart gold pendant." },
-    { id: 23, name: "Verdant Bloom", price: "AED 28.00", category: "under-30", type: "ring", image: "./assets/products/verdant-bloom.jpg", desc: "Emerald green floral accent statement piece." },
-    { id: 24, name: "Vintage Shine", price: "AED 32.00", category: "under-50", type: "watch", image: "./assets/products/Vintage-shine.jpg", desc: "Celestial gold coin pendant chain." },
-    { id: 25, name: "Winter Bloom", price: "AED 28.00", category: "under-30", type: "rings", image: "./assets/products/winter-bloom.jpg", desc: "Textured silver crystal statement ring." },
-    { id: 26, name: "Zorei Zircon", price: "AED 25.00", category: "under-30", type: "rings", image: "./assets/products/zorei-zircon.jpg", desc: "Solitaire olive zircon gemstone gold ring." },
-    { id: 27, name: "Melted Metal Chain (in Gold)", price: "AED 130.00", category: "under-150", type: "necklace", image: "./assets/products/melted-metal-chain-gold.jpg", desc: "Gold glided artistic statement collection chain." },
-    { id: 28, name: "Melting Metal Chain (Silver)", price: "AED 130.00", category: "under-150", type: "necklace", image: "./assets/products/melting-metal-chain-silver.jpg", desc: "Silver glided statement collection chain." },
-    { id: 29, name: "Pearl Layered Pendant", price: "AED 90.00", originalPrice: "AED 130.00", category: "under-100", type: "necklace", image: "./assets/products/pearl-layered-pendant.jpg", desc: "Classic elegant design with tear drop pearl layers." },
-    { id: 30, name: "Golden Luna Mini Hoops", price: "AED 18.00", originalPrice: "AED 25.00", category: "under-30", type: "earrings", image: "./assets/products/golden-luna-mini-hoops.jpg", desc: "Gold mini huggie hoops." },
-    { id: 31, name: "Golden Hexa Mini Hoops", price: "AED 15.00", category: "under-30", type: "earrings", image: "./assets/products/golden-hexa-mini-hoops.jpg", desc: "Hexagonal textured gold mini hoops." },
-    { id: 32, name: "Golden Crystal Retro Hoops", price: "AED 20.00", originalPrice: "AED 30.00", category: "under-30", type: "earrings", image: "./assets/products/golden-crystal-retro-hoops.jpg", desc: "Yellow sparkling crystal retro drop hoops." },
-    { id: 33, name: "Wine Drop Hoops", price: "AED 18.00", originalPrice: "AED 30.00", category: "under-30", type: "earrings", image: "./assets/products/wine-drop-hoops.jpg", desc: "Vibrant wine red drop hoop earrings." },
-    { id: 34, name: "Rosé Mini Hoops", price: "AED 15.00", category: "under-30", type: "earrings", image: "./assets/products/rose-mini-hoops.jpg", desc: "Asymmetrical rose mini huggie hoops." },
-    { id: 35, name: "Luna Layered Ear Cuffs Set", price: "AED 25.00", category: "under-30", type: "earrings", image: "./assets/products/Luna-layered-ear cuffs-set.jpg", desc: "Layered luxury gold ear cuff set." },
-    { id: 36, name: "Honey Dew Hoops", price: "AED 18.00", originalPrice: "AED 30.00", category: "under-30", type: "earrings", image: "./assets/products/honey-dew-hoops.jpg", desc: "Crystal honeydew teardrop hoop earrings." },
-    { id: 37, name: "Half Hoop Drops", price: "AED 30.00", originalPrice: "AED 60.00", category: "under-30", type: "earrings", image: "./assets/products/half-hoop-drops.jpg", desc: "Convertible half hoop drop earrings." },
-    { id: 38, name: "Boho Chain Earring", price: "AED 35.00", category: "under-50", type: "earrings", image: "./assets/products/boho-chain-earring.jpg", desc: "Free-spirited boho chain earrings in a refined silver finish." },
-    { id: 39, name: "Chain Loop Earrings", price: "AED 30.00", category: "under-30", type: "earrings", image: "./assets/products/chain-loop-earrings.jpg", desc: "Sculptural linked loop earrings with a sleek modern edge." },
-    { id: 40, name: "Chunky Silver Hoops", price: "AED 32.00", category: "under-50", type: "earrings", image: "./assets/products/chuncy-silver-hoops.jpg", desc: "Bold chunky silver hoops with a lustrous satin finish." },
-    { id: 41, name: "Crystal Cherry Hoops", price: "AED 25.00", category: "under-30", type: "earrings", image: "./assets/products/crystal-cherry-hoops.jpg", desc: "Cherry red crystal drop earrings with luminous glass accents." },
-    { id: 42, name: "Dual Tone Oval Drops", price: "AED 40.00", category: "under-50", type: "earrings", image: "./assets/products/dual-tone-oval-drops-earrings.jpg", desc: "Dual-tone oval drop earrings blending warm and cool metallics." },
-    { id: 43, name: "Garnet Glare Asymmetrical Drops", price: "AED 55.00", category: "under-100", type: "earrings", image: "./assets/products/garnet-glare-asymmetrical-drops.jpg", desc: "Asymmetrical garnet drops with a rich ruby glare finish." },
-    { id: 44, name: "Garnet Glare Drops", price: "AED 55.00", category: "under-100", type: "earrings", image: "./assets/products/garnet-glare-drops.jpg", desc: "Classic garnet glare drop earrings with deep crimson stones." },
-    { id: 45, name: "Garnet Glare Hollow Drops", price: "AED 60.00", category: "under-100", type: "earrings", image: "./assets/products/garnet-glare-hollow-drops.jpg", desc: "Hollow garnet drop earrings in a radiant crimson tone." },
-    { id: 46, name: "Green Crescent Earrings", price: "AED 38.00", category: "under-50", type: "earrings", image: "./assets/products/green-crescent-earrings.jpg", desc: "Emerald crescent earrings with a soft vintage glow." },
-    { id: 47, name: "Luna Layered Ear Cuffs Set", price: "AED 35.00", category: "under-50", type: "earrings", image: "./assets/products/Luna-layered-ear cuffs-set.jpg", desc: "Layered lunar ear cuff set in polished gold tones." },
-    { id: 48, name: "Rainbow Crystal Drops", price: "AED 52.00", category: "under-100", type: "earrings", image: "./assets/products/rainbow-crystal-drops.jpg", desc: "Iridescent rainbow crystal drop earrings with prismatic sparkle." },
-    { id: 49, name: "Bianca Handcuff", price: "AED 45.00", category: "under-50", type: "bracelets", image: "./assets/products/bianca-handcuff.jpg", desc: "Sculptural bianca handcuff bracelet in a statement silhouette." },
-    { id: 50, name: "Cleopatra Handcuff", price: "AED 65.00", category: "under-100", type: "bracelets", image: "./assets/products/cleopatra-handcuff.jpg", desc: "Regal cleopatra handcuff bracelet with bold engraved detailing." },
-    { id: 51, name: "Kelly Gold Handcuff", price: "AED 48.00", category: "under-50", type: "bracelets", image: "./assets/products/kelly-gold-handcuff.jpg", desc: "Opulent gold handcuff bracelet with a flawless mirror shine." },
-    { id: 52, name: "Melted Gold Handcuff", price: "AED 65.00", category: "under-100", type: "bracelets", image: "./assets/products/melted-gold-handcuff.jpg", desc: "Artistic melted gold handcuff bracelet in a fluid luxury form." },
-];
+
 
   /* ------------------------------------------------------------------ *
    * 3. Small, dependency-free helpers
@@ -3694,6 +4930,24 @@ var onGridClick = function (event) {
       return `\u20B9 ${toDisplayNumber(amountAED).toLocaleString("en-IN")}`;
     }
     return formatAED(amountAED);
+  };
+
+  /** Exact storage-timestamp display: "12 Nov 2026, 4:35 PM". Returns ""
+     when the product carries no stamp (legacy row never registered). */
+  const formatDateAdded = (value) => {
+    if (!value) return "";
+    const parsed = typeof value === "number" ? new Date(value) : new Date(String(value));
+    if (isNaN(parsed.getTime()) || parsed.getTime() < 946684800000) return "";
+    const date = parsed.toLocaleDateString("en-GB", {
+      day: "2-digit",
+      month: "short",
+      year: "numeric",
+    });
+    const time = parsed.toLocaleTimeString("en-US", {
+      hour: "numeric",
+      minute: "2-digit",
+    });
+    return `${date}, ${time}`;
   };
 
   /** MutationObserver-less convenience: applies current currency to a card's price nodes. */
@@ -3843,6 +5097,10 @@ const stockLabelFor = (count) => `STOCK ${count} LEFT`;
              no count at all - see stockOf() for why null must not become 0. */
           stock: stockOf(row.stockCount ?? row.stock ?? row.Stock ?? row["Stock Count"] ?? row.quantity),
           outOfStock: row.outOfStock === true,
+          /* Storage/creation stamp travels with the row when the sheet
+             provides one, so a synced product never loses its exact
+             "when was this stored?" answer. */
+          dateAdded: row.dateAdded ?? row.Added ?? row.added ?? null,
         };
       })
       .filter((p) => p && p.title && p.price !== null && p.price > 0)
@@ -4085,6 +5343,16 @@ const stockLabelFor = (count) => `STOCK ${count} LEFT`;
     }
     body.appendChild(price);
 
+    /* Exact storage timestamp, straight off the product record — every
+       card displays exactly when its piece entered LURÉI storage. */
+    const addedStamp = formatDateAdded(product.dateAdded);
+    if (addedStamp) {
+      const added = document.createElement("p");
+      added.className = "product-card__added";
+      added.textContent = `Added ${addedStamp}`;
+      body.appendChild(added);
+    }
+
     const cta = document.createElement("button");
     cta.className = "product-card__cta";
     cta.type = "button";
@@ -4306,16 +5574,7 @@ const stockLabelFor = (count) => `STOCK ${count} LEFT`;
   /* ------------------------------------------------------------------ *
    * 4b. New In — "Autumn Vault" curated arrivals
    * ------------------------------------------------------------------ */
-  const NEW_IN_IDS = [1, 2, 4, 6, 20, 24];
 
-  const NEW_IN_VAULT = {
-    1: { original: "AED 40.00", stock: 5, left: 3 },
-    2: { original: "AED 46.00", stock: 5, left: 2 },
-    4: { original: "AED 44.00", stock: 6, left: 4 },
-    6: { original: "AED 22.00", stock: 4, left: 1 },
-    20: { original: "AED 52.00", stock: 6, left: 3 },
-    24: { original: "AED 48.00", stock: 5, left: 4 },
-  };
 
   const newInGridEl = $("#new-in-grid");
 
@@ -4330,14 +5589,7 @@ const stockLabelFor = (count) => `STOCK ${count} LEFT`;
   };
 
   const newInProducts = () => {
-    const seeded = NEW_IN_IDS.map((id) =>
-      catalogue.find((p) => String(p.id) === String(id))
-    ).filter(Boolean);
-
-    const seededKeys = new Set(seeded.map((p) => String(p.id)));
-    const added = catalogueAdditions().filter((p) => !seededKeys.has(String(p.id)));
-
-    return [...seeded, ...added];
+    return catalogueAdditions();
   };
 
   const renderNewIn = () => {
@@ -4345,19 +5597,7 @@ const stockLabelFor = (count) => `STOCK ${count} LEFT`;
 
     const fragment = document.createDocumentFragment();
     newInProducts().forEach((product, index) => {
-      const id = Number(product.id);
-      const vault = NEW_IN_VAULT[id] || { original: formatAED(product.price), stock: 4, left: 3 };
       const soldOut = isSoldOut(product);
-
-      /* An admin count always wins over the curated seed number, so a restock
-         is reflected here in the same render as the collections grid. The seed
-         only stands in for pieces nobody has ever tallied: an explicit 0 is
-         respected and drops the stock badge entirely. */
-      const counted = stockCountOf(product);
-      const untallied = stockOf(rawStockOf(product)) === null;
-      const left = counted === null ? (untallied ? vault.left : 0) : counted;
-      const showStock = soldOut || left > 0;
-      const pct = soldOut ? 0 : left > 0 ? Math.max(8, Math.round((left / vault.stock) * 100)) : 0;
 
       const card = document.createElement("article");
       card.className = "new-in-card";
@@ -4382,15 +5622,11 @@ const stockLabelFor = (count) => `STOCK ${count} LEFT`;
         media.appendChild(buildPlaceholder("new-in-card__placeholder", product));
       }
 
-      /* One stock message per card. The pill is the only one now - the long
-         "remaining in Dubai stock" line underneath it said the same number a
-         second time and only cluttered the card. The admin's sold-out flag
-         always wins; a 0 or untallied count emits no pill and no bar. */
       const limited = document.createElement("span");
       limited.className = soldOut
         ? "new-in-card__limited new-in-card__limited--sold-out"
         : "new-in-card__limited";
-      limited.textContent = soldOut ? "OUT OF STOCK" : `LIMITED VAULT \u2022 ${left} LEFT`;
+      limited.textContent = soldOut ? "OUT OF STOCK" : "NEW ARRIVAL";
 
       const heart = document.createElement("button");
       heart.type = "button";
@@ -4401,7 +5637,7 @@ const stockLabelFor = (count) => `STOCK ${count} LEFT`;
       heart.innerHTML = WISHLIST_ICON;
       if (hasWishlist(product.id)) heart.classList.add("is-wishlisted");
 
-      if (showStock) media.append(limited);
+      if (!soldOut) media.append(limited);
       media.append(heart);
 
       const body = document.createElement("div");
@@ -4411,35 +5647,22 @@ const stockLabelFor = (count) => `STOCK ${count} LEFT`;
       title.className = "new-in-card__title";
       title.textContent = product.title;
 
+      /* Exact storage timestamp of the publish, so "New In" is evidence:
+         the shopper sees precisely when the piece entered the catalogue. */
+      const addedStamp = formatDateAdded(product.dateAdded);
+      const added = addedStamp ? document.createElement("p") : null;
+      if (added) {
+        added.className = "new-in-card__date";
+        added.textContent = `Added ${addedStamp}`;
+      }
+
       const desc = document.createElement("p");
       desc.className = "new-in-card__desc";
-      desc.textContent = product.description || "A handcrafted piece from the Autumn Vault.";
+      desc.textContent = product.description || "A handcrafted piece.";
 
       const price = document.createElement("p");
       price.className = "new-in-card__price";
-      const wasPrice = document.createElement("span");
-      wasPrice.className = "new-in-card__was";
-      wasPrice.textContent = formatPrice(toNumber(vault.original) || product.price);
-      const nowPrice = document.createElement("span");
-      nowPrice.className = "new-in-card__now";
-      nowPrice.textContent = formatPrice(product.price);
-      price.append(wasPrice, nowPrice);
-
-      /* The slim depletion bar survives as a purely visual cue; the number now
-         lives in the pill only, so there is nothing to contradict after a
-         restock. Hidden alongside the pill when there is no count to show. */
-      let stock = null;
-      if (showStock) {
-        stock = document.createElement("div");
-        stock.className = "new-in-card__stock";
-        const stockTrack = document.createElement("div");
-        stockTrack.className = "new-in-card__stock-track";
-        const stockFill = document.createElement("div");
-        stockFill.className = "new-in-card__stock-fill";
-        stockFill.style.width = `${pct}%`;
-        stockTrack.appendChild(stockFill);
-        stock.appendChild(stockTrack);
-      }
+      price.textContent = formatPrice(product.price);
 
       const cta = document.createElement("button");
       cta.type = "button";
@@ -4454,8 +5677,9 @@ const stockLabelFor = (count) => `STOCK ${count} LEFT`;
       cta.innerHTML = `${CART_ICON}<span>${soldOut ? "Out of Stock" : "Add to Cart"}</span>`;
       if (soldOut) cta.disabled = true;
 
-      if (stock) body.append(stock);
-      body.append(title, desc, price, cta);
+      body.append(title);
+      if (added) body.append(added);
+      body.append(desc, price, cta);
       card.append(media, body);
       fragment.appendChild(card);
     });
@@ -4463,38 +5687,7 @@ const stockLabelFor = (count) => `STOCK ${count} LEFT`;
     newInGridEl.replaceChildren(fragment);
   };
 
-  /* ------------------------------------------------------------------ *
-   * 4c. Just In — everything the admin has published, on the homepage
-   * ------------------------------------------------------------------ */
-  /* The Top Selling carousel above is deliberately fixed: three curated
-     batches of four ids, with a CSS track width and a clone-the-first-batch
-     loop that only line up at exactly three batches. Feeding admin additions
-     into it would mean rewriting that geometry for a variable number of
-     pages, so new pieces get their own rail instead — same buildCard()
-     template, same badges, same sold-out treatment, and no timing to break.
-     The section stays hidden until there is something in it, so a shopper
-     never sees an empty heading. */
-  const justInEl = $("#just-in");
-  const justInGridEl = $("#just-in-grid");
 
-  const JUST_IN_LIMIT = 8;
-
-  const renderJustIn = () => {
-    if (!justInEl || !justInGridEl) return;
-
-    const added = catalogueAdditions().slice(0, JUST_IN_LIMIT);
-    justInEl.hidden = added.length === 0;
-    if (!added.length) {
-      justInGridEl.replaceChildren();
-      return;
-    }
-
-    const fragment = document.createDocumentFragment();
-    added.forEach((product, index) => {
-      fragment.appendChild(buildCard(product, index));
-    });
-    justInGridEl.replaceChildren(fragment);
-  };
 
   /* ------------------------------------------------------------------ *
    * 5. Catalogue state + dual-section rendering
@@ -4898,7 +6091,6 @@ const stockLabelFor = (count) => `STOCK ${count} LEFT`;
     renderTopSellers();
     refreshCollections();
     renderNewIn();
-    renderJustIn();
     updateLoadMore();
     clearStatus();
   };
@@ -5292,7 +6484,12 @@ const stockLabelFor = (count) => `STOCK ${count} LEFT`;
     addBtn.className = "quickview__add";
     addBtn.textContent = "Add to Bag";
 
-    info.append(eyebrow, title, price, desc, qtyWrap, addBtn);
+    /* A-to-Z detail ledger: ID, category, stock state and the exact storage
+       timestamp of the record, straight from the stored object. */
+    const meta = document.createElement("div");
+    meta.className = "quickview__meta";
+
+    info.append(eyebrow, title, price, desc, meta, qtyWrap, addBtn);
     card.append(closeBtn, media, info);
     modal.appendChild(card);
     document.body.append(overlay, modal);
@@ -5318,7 +6515,7 @@ const stockLabelFor = (count) => `STOCK ${count} LEFT`;
       openDrawer();
     });
 
-    quickViewEl = { overlay, modal, stage, mainImg, thumbs, title, price, desc, count, minus, plus, addBtn, closeBtn };
+    quickViewEl = { overlay, modal, stage, mainImg, thumbs, title, price, desc, meta, count, minus, plus, addBtn, closeBtn };
     return quickViewEl;
   };
 
@@ -5425,6 +6622,52 @@ const stockLabelFor = (count) => `STOCK ${count} LEFT`;
     const soldOut = isSoldOut(product);
     ui.addBtn.disabled = soldOut;
     ui.addBtn.textContent = soldOut ? "Out of Stock" : "Add to Bag";
+
+    /* A-to-Z record details, re-read on every open so restocks, price edits
+       and timestamps always show the current stored truth. */
+    if (ui.meta) {
+      ui.meta.replaceChildren();
+      const rows = [];
+
+      const addedStamp = formatDateAdded(product.dateAdded);
+      if (addedStamp) {
+        rows.push(["In LURÉI since", addedStamp]);
+      }
+      if (product.id !== null && product.id !== undefined && String(product.id) !== "") {
+        rows.push(["Record ID", `#${product.id}`]);
+      }
+      if (product.type) {
+        const label =
+          (product.type === "earrings" ? "Earrings" :
+          product.type === "rings" ? "Rings" :
+          product.type === "necklaces" ? "Necklaces" :
+          product.type === "bracelets" ? "Bracelets" :
+          product.type === "watches" ? "Watches" : product.type);
+        rows.push(["Category", label]);
+      }
+      if (isSoldOut(product)) {
+        rows.push(["Availability", "Out of stock"]);
+      } else if (stockCountOf(product)) {
+        rows.push(["Availability", `In stock · ${stockCountOf(product)} left`]);
+      }
+      if (product.badge) {
+        rows.push(["Badge", String(product.badge)]);
+      }
+
+      rows.forEach(([key, value]) => {
+        const row = document.createElement("div");
+        row.className = "quickview__meta-row";
+        const term = document.createElement("span");
+        term.className = "quickview__meta-key";
+        term.textContent = key;
+        const detail = document.createElement("span");
+        detail.className = "quickview__meta-value";
+        detail.textContent = value;
+        row.append(term, detail);
+        ui.meta.appendChild(row);
+      });
+      ui.meta.hidden = rows.length === 0;
+    }
 
     setQuickViewQty(1);
     buildQuickViewGallery(ui, product);
@@ -6650,10 +7893,30 @@ Thank you!`;
     );
 
   (async () => {
-    const defaults = normalizeProducts(products);
+    const defaults = [];
     if (catalogueStore && typeof catalogueStore.setDefaults === "function") catalogueStore.setDefaults(defaults);
 
     const isStorefront = hasStorefrontMarkup();
+
+    /* Deep storage recovery: scan every localStorage key and IndexedDB record
+       for owner-added products, merge them, and write the authoritative
+       catalogue back to all layers. Recovered products take absolute priority
+       and render immediately — no fallback dummy data can ever hide them. */
+    var recoveredProducts = [];
+    if (catalogueStore && typeof catalogueStore.recoverFromAllStorage === "function") {
+      recoveredProducts = await catalogueStore.recoverFromAllStorage();
+    }
+
+    /* Also promote any newer IndexedDB payload into localStorage. */
+    if (catalogueStore && typeof catalogueStore.hydrateFromIndexedDb === "function") {
+      await catalogueStore.hydrateFromIndexedDb();
+    }
+
+    /* Recovered products seed the storefront before anything else. If none
+       exist, defaults stays empty so the shelf renders blank until the owner
+       adds products or Google Sheets supplies live data. */
+    var effectiveDefaults = recoveredProducts.length ? recoveredProducts : defaults;
+    if (catalogueStore && typeof catalogueStore.setDefaults === "function") catalogueStore.setDefaults(effectiveDefaults);
 
     /* Mock-first: the built-in catalogue paints before the Sheet is consulted,
        so a slow or unconfigured backend never delays the storefront. */
@@ -6671,7 +7934,7 @@ Thank you!`;
         activeFilter = selectedCat;
       }
 
-      applyCatalogue(defaults);
+      applyCatalogue(effectiveDefaults);
       applyFilter(activeFilter);
       renderCartItems();
       resetCheckoutView();
@@ -6679,7 +7942,7 @@ Thank you!`;
       /* Keeps this tab in step with the admin tab and with any other tab that
          the store change came from. */
       if (catalogueStore && typeof catalogueStore.subscribe === "function") {
-        catalogueStore.subscribe(() => applyCatalogue(defaults));
+        catalogueStore.subscribe(() => applyCatalogue(effectiveDefaults));
       }
     }
 

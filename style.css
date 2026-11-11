@@ -1432,6 +1432,17 @@ body:not(.admin-page) select {
   color: var(--color-muted);
 }
 
+/* Exact storage timestamp of the product record ("200% guarantee" label).
+   Deliberately whisper-quiet: evidence, not decoration. */
+.product-card__added {
+  margin-top: 2px;
+  font-size: 0.62rem;
+  font-weight: 500;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #9C9687;
+}
+
 .product-card__category {
   font-size: 0.64rem;
   font-weight: 500;
@@ -3200,6 +3211,16 @@ box-shadow: -28px 0 70px -30px rgba(26, 26, 26, 0.4);
   font-size: 0.84rem;
   line-height: 1.5;
   color: #8A8578;
+}
+
+/* Exact storage timestamp under the arrivals title. */
+.new-in-card__date {
+  margin: 0.15rem 0 0;
+  font-size: 0.62rem;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #B09A63;
 }
 
 .new-in-card__price {
@@ -6418,6 +6439,45 @@ body.lightbox-open {
   font-size: 0.9rem;
   line-height: 1.65;
   color: var(--color-muted);
+}
+
+/* A-to-Z record ledger: every stored detail of the piece plus its exact
+   storage timestamp, replacing the old guesswork with the object itself. */
+.quickview__meta {
+  display: none;
+  margin-top: 0.35rem;
+  padding: 0.65rem 0.8rem;
+  background: rgba(176, 154, 99, 0.07);
+  border: 1px solid rgba(176, 154, 99, 0.28);
+  border-radius: 10px;
+}
+
+.quickview__meta:not([hidden]) {
+  display: grid;
+  gap: 0.3rem;
+}
+
+.quickview__meta-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.quickview__meta-key {
+  flex: none;
+  font-size: 0.58rem;
+  font-weight: 700;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: #8A8578;
+}
+
+.quickview__meta-value {
+  font-size: 0.78rem;
+  font-weight: 500;
+  color: #1C1C1C;
+  text-align: right;
 }
 
 .quickview__qty-wrap {

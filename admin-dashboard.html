@@ -1514,6 +1514,10 @@
             <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 20V10M10 20V4M16 20v-7M22 20H2"></path></svg>
             Analytics
           </button>
+          <button class="nav-link" type="button" data-section="storagevault">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16v13H4z"></path><path d="M4 7l2-3h12l2 3"></path><path d="M12 11v6M9 14h6"></path></svg>
+            Storage Vault
+          </button>
         </div>
       </nav>
 
@@ -1894,6 +1898,103 @@
                 <p class="empty__title">No sales data yet</p>
                 <p class="empty__text">Monthly growth appears once orders carry real dates.</p>
               </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- ---------- Storage Vault (dual-storage + recycle bin) ---------- -->
+        <section class="hidden" data-panel="storagevault">
+          <div class="stats-grid" id="vault-stats-grid">
+            <article class="stat">
+              <p class="stat__label">Verified Base Vault</p>
+              <p class="stat__value is-gold" id="vault-verified">0</p>
+              <p class="stat__meta" id="vault-verified-meta">Permanently locked in lurei_verified_products — immune to wipes</p>
+            </article>
+            <article class="stat">
+              <p class="stat__label">Admin-Added Products</p>
+              <p class="stat__value" id="vault-adminnew">0</p>
+              <p class="stat__meta" id="vault-adminnew-meta">Registered in lurei_new_admin_products, each with its exact dateAdded</p>
+            </article>
+            <article class="stat">
+              <p class="stat__label">Recycle Bin</p>
+              <p class="stat__value" id="vault-bin">0</p>
+              <p class="stat__meta" id="vault-bin-meta">Held in lurei_recycle_bin — restorable until permanently deleted</p>
+            </article>
+            <article class="stat">
+              <p class="stat__label">Live Catalogue</p>
+              <p class="stat__value" id="vault-live">0</p>
+              <p class="stat__meta" id="vault-live-meta">Merged storefront catalogue: verified base + admin additions</p>
+            </article>
+          </div>
+
+          <div class="panel">
+            <div class="panel__head">
+              <div>
+                <h2 class="panel__title">Recycle Bin</h2>
+                <p class="panel__hint" id="bin-hint">Deleted pieces wait here with their full record and deletion date</p>
+              </div>
+              <div style="display:flex;gap:0.6rem;">
+                <button class="nav-link" type="button" id="vault-backup" style="width:auto;">
+                  <svg viewBox="0 0 24 24" aria-hidden="true" style="width:15px;height:15px;stroke:currentColor;fill:none;stroke-width:1.9;"><path d="M12 3v11"></path><path d="M7.5 10 12 14.5 16.5 10"></path><path d="M4 20h16"></path></svg>
+                  Download JSON Backup
+                </button>
+                <button class="nav-link" type="button" id="bin-empty" style="width:auto;">
+                  <svg viewBox="0 0 24 24" aria-hidden="true" style="width:15px;height:15px;stroke:currentColor;fill:none;stroke-width:1.9;"><path d="M4 8h16"></path><path d="M6 8v11a1 1 0 0 0 1 1h10a1 1 0 0 0 1-1V8"></path></svg>
+                  Empty Bin
+                </button>
+              </div>
+            </div>
+
+            <div class="table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th scope="col">Product</th>
+                    <th scope="col">Price</th>
+                    <th scope="col">Added (dateAdded)</th>
+                    <th scope="col">Deleted</th>
+                    <th scope="col">Actions</th>
+                  </tr>
+                </thead>
+                <tbody id="bin-body"></tbody>
+              </table>
+            </div>
+
+            <div class="empty hidden" id="bin-empty-state">
+              <div class="empty__icon" aria-hidden="true">
+                <svg viewBox="0 0 24 24"><path d="M4 8h16"></path><path d="M6 8v11a1 1 0 0 0 1 1h10a1 1 0 0 0 1-1V8"></path><path d="M10 12h4"></path></svg>
+              </div>
+              <p class="empty__title">The bin is empty</p>
+              <p class="empty__text">Deleting a product from the storefront editor moves it here with its full A-to-Z record — restore or permanently delete it from this panel.</p>
+            </div>
+          </div>
+
+          <div class="panel">
+            <div class="panel__head">
+              <div>
+                <h2 class="panel__title">Newest Admin Publications</h2>
+                <p class="panel__hint">Straight from lurei_new_admin_products &middot; newest first</p>
+              </div>
+            </div>
+            <div class="table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th scope="col">Product</th>
+                    <th scope="col">Price</th>
+                    <th scope="col">Storage Timestamp</th>
+                    <th scope="col">Record ID</th>
+                  </tr>
+                </thead>
+                <tbody id="adminnew-body"></tbody>
+              </table>
+            </div>
+            <div class="empty hidden" id="adminnew-empty">
+              <div class="empty__icon" aria-hidden="true">
+                <svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"></path></svg>
+              </div>
+              <p class="empty__title">No admin-added products yet</p>
+              <p class="empty__text">Publish a product from the storefront editor (Save &amp; Exit) and it registers here with its exact creation timestamp.</p>
             </div>
           </div>
         </section>
@@ -5460,6 +5561,7 @@ const exportCSV = () => {
         orders: { crumb: "Orders", heading: "Order Management" },
         report: { crumb: "Monthly Report", heading: "Monthly Report & Completed Log" },
         analytics: { crumb: "Analytics", heading: "Sales Analytics" },
+        storagevault: { crumb: "Storage Vault", heading: "Dual Storage & Recycle Bin" },
       };
 
       const sidebar = $("#admin-sidebar");
@@ -5487,7 +5589,217 @@ const exportCSV = () => {
         const trigger = event.target.closest("[data-section]");
         if (!trigger) return;
         showSection(trigger.dataset.section);
+        if (trigger.dataset.section === "storagevault") renderStorageVault();
       });
+
+      /* ---------------- Storage Vault (dual storage + recycle bin) ----------------
+         Reads the shared catalogue store (window.LureiCatalogue), which holds:
+           · lurei_verified_products   — the permanent, wipe-immune vault of
+                                        recovered owner products;
+           · lurei_new_admin_products — every Save & Exit publication with its
+                                        exact dateAdded stamp;
+           · lurei_recycle_bin        — the delete workflow's holding area.
+         Nothing here writes unless the owner clicks a labeled action, so
+         opening the panel can never disturb the catalogue. */
+      const fmtAED = (value) => {
+        const num = Number(value);
+        return "AED " + (Number.isFinite(num) ? num.toFixed(2) : "0.00");
+      };
+
+      const fmtStamp = (value) => {
+        if (!value) return "—";
+        const parsed = new Date(value);
+        if (isNaN(parsed.getTime())) return "—";
+        return (
+          parsed.toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" }) +
+          ", " +
+          parsed.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })
+        );
+      };
+
+      const renderStorageVault = () => {
+        const catalogueApi = window.LureiCatalogue || null;
+        const storeApi = catalogueApi && catalogueApi.store ? catalogueApi.store : null;
+        if (!catalogueApi || !storeApi) return;
+
+        const safe = (fn, fallback = []) => {
+          try {
+            const result = fn();
+            return result == null ? fallback : result;
+          } catch {
+            return fallback;
+          }
+        };
+
+        const verified = safe(() => catalogueApi.verifiedBase());
+        const adminNew = safe(() => catalogueApi.adminNewProducts());
+        const bin = safe(() => catalogueApi.recycleBin());
+        const live = safe(() => storeApi.read());
+
+        const setCount = (id, value) => {
+          const el = $(id);
+          if (el) el.textContent = String(value);
+        };
+        setCount("#vault-verified", verified.length);
+        setCount("#vault-adminnew", adminNew.length);
+        setCount("#vault-bin", bin.length);
+        setCount("#vault-live", live.length);
+
+        const verifiedMeta = $("#vault-verified-meta");
+        if (verifiedMeta) {
+          verifiedMeta.textContent = verified.length
+            ? `Permanently locked in lurei_verified_products — immune to wipes (oldest stamp: ${fmtStamp(
+                verified.map((p) => p.dateAdded).filter(Boolean).sort()[0] || null
+              )})`
+            : "Verified in lurei_verified_products — products lock in on the first recovery sweep";
+        }
+
+        /* --- Recycle bin table --- */
+        const binBody = $("#bin-body");
+        const binEmpty = $("#bin-empty-state");
+        if (binBody && binEmpty) {
+          binBody.replaceChildren();
+          binEmpty.classList.toggle("hidden", bin.length > 0);
+
+          bin.forEach((entry) => {
+            const record = entry.product || {};
+            const tr = document.createElement("tr");
+
+            const tdTitle = document.createElement("td");
+            tdTitle.textContent = record.title || "Untitled piece";
+            const tdPrice = document.createElement("td");
+            tdPrice.textContent = fmtAED(record.price);
+            const tdAdded = document.createElement("td");
+            tdAdded.textContent = fmtStamp(record.dateAdded);
+            const tdDeleted = document.createElement("td");
+            tdDeleted.textContent = fmtStamp(entry.deletedAt);
+
+            const tdActions = document.createElement("td");
+            const restoreBtn = document.createElement("button");
+            restoreBtn.className = "nav-link";
+            restoreBtn.type = "button";
+            restoreBtn.style.width = "auto";
+            restoreBtn.textContent = "Restore";
+            restoreBtn.addEventListener("click", () => {
+              try {
+                catalogueApi.restoreFromBin(entry.id);
+                showToast(`"${record.title}" restored to the live catalogue.`);
+              } catch (error) {
+                showToast("Restore failed: " + (error && error.message));
+              }
+              renderStorageVault();
+            });
+
+            const purgeBtn = document.createElement("button");
+            purgeBtn.className = "nav-link";
+            purgeBtn.type = "button";
+            purgeBtn.style.width = "auto";
+            purgeBtn.textContent = "Delete Permanently";
+            purgeBtn.addEventListener("click", () => {
+              if (!window.confirm(
+                `Permanently delete "${record.title}" from lurei_recycle_bin?\n\nThis is the only destructive step — the record cannot come back afterwards.`
+              )) return;
+              try {
+                catalogueApi.purgeFromBin(entry.id);
+                showToast(`"${record.title}" permanently deleted.`);
+              } catch (error) {
+                showToast("Delete failed: " + (error && error.message));
+              }
+              renderStorageVault();
+            });
+
+            tdActions.append(restoreBtn, document.createTextNode(" "), purgeBtn);
+            tr.append(tdTitle, tdPrice, tdAdded, tdDeleted, tdActions);
+            binBody.appendChild(tr);
+          });
+
+          const binHint = $("#bin-hint");
+          if (binHint) {
+            binHint.textContent = bin.length
+              ? `${bin.length} deleted piece(s) held with full record and deletion date`
+              : "Deleted pieces wait here with their full record and deletion date";
+          }
+        }
+
+        /* --- Admin-added registry table --- */
+        const newBody = $("#adminnew-body");
+        const newEmpty = $("#adminnew-empty");
+        if (newBody && newEmpty) {
+          newBody.replaceChildren();
+          newEmpty.classList.toggle("hidden", adminNew.length > 0);
+
+          adminNew.forEach((product) => {
+            const tr = document.createElement("tr");
+
+            const tdTitle = document.createElement("td");
+            tdTitle.textContent = product.title || "Untitled piece";
+            const tdPrice = document.createElement("td");
+            tdPrice.textContent = fmtAED(product.price);
+            const tdStamp = document.createElement("td");
+            tdStamp.textContent = fmtStamp(product.dateAdded);
+            const tdId = document.createElement("td");
+            tdId.textContent = product.id !== null && product.id !== undefined ? "#" + product.id : "—";
+
+            tr.append(tdTitle, tdPrice, tdStamp, tdId);
+            newBody.appendChild(tr);
+          });
+        }
+      };
+
+      /* Bin hygiene: emptying the bin is a permanent act, so it asks twice. */
+      const emptyBinBtn = $("#bin-empty");
+      if (emptyBinBtn) {
+        emptyBinBtn.addEventListener("click", () => {
+          try {
+            const bin = (window.LureiCatalogue && window.LureiCatalogue.recycleBin) ?
+              window.LureiCatalogue.recycleBin() : [];
+            if (!bin.length) {
+              showToast("The recycle bin is already empty.");
+              return;
+            }
+            if (!window.confirm(
+              `Permanently erase all ${bin.length} record(s) in lurei_recycle_bin?\n\nThey cannot be recovered afterwards.`
+            )) return;
+            if (!window.confirm("Final confirmation: erase the recycle bin contents permanently?")) return;
+            window.LureiCatalogue.emptyRecycleBin();
+            showToast("Recycle bin permanently emptied.");
+          } catch (error) {
+            showToast("Could not empty the bin: " + (error && error.message));
+          }
+          renderStorageVault();
+        });
+      }
+
+      /* Disk-level backup: one JSON file covers verified vault, admin
+         registry, recycle bin and the live catalogue. */
+      const backupBtn = $("#vault-backup");
+      if (backupBtn) {
+        backupBtn.addEventListener("click", () => {
+          const api = window.LureiCatalogue;
+          if (!api || typeof api.exportCatalogueBackup !== "function") {
+            showToast("Backup is unavailable in this session.");
+            return;
+          }
+          try {
+            api.exportCatalogueBackup();
+            showToast("Backup downloaded — store it outside the browser.");
+          } catch (error) {
+            showToast("Backup failed: " + (error && error.message));
+          }
+        });
+      }
+
+      /* Keep the vault panel honest: re-render it every time it is shown,
+         and whenever the catalogue store moves while the panel is visible. */
+      try {
+        const catalogueApi = window.LureiCatalogue;
+        if (catalogueApi && catalogueApi.store && typeof catalogueApi.store.subscribe === "function") {
+          catalogueApi.store.subscribe(() => {
+            const panel = $('[data-panel="storagevault"]');
+            if (panel && !panel.classList.contains("hidden")) renderStorageVault();
+          });
+        }
+      } catch {}
 
       /* ---------------- Period filter ----------------
          Keeps the pressed state on the button as well as the class, so
