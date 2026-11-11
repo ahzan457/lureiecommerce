@@ -55,6 +55,77 @@
   const FORMSPREE_FORM_ID = "";
 
   /* ------------------------------------------------------------------ *
+   * 1a. DEFAULT VERIFIED VAULT — the boutique's frozen master catalogue. *
+   *                                                                     *
+   * These are the 51 verified owner products, exported verbatim from the *
+   * owner's own device records (the exact inventory that was live on the *
+   * storefront before the backend went quiet). It exists so that a fresh *
+   * deployment, a new browser, or a full storage reset can NEVER render  *
+   * an empty storefront: the moment the "lurei_verified_products" vault  *
+   * key is found empty, this list is written into it through the regular *
+   * merge-only vault writer (ensureVerifiedVault), which then feeds the  *
+   * storefront, the collections grid, the admin dashboard and the        *
+   * recycle-bin workflows exactly like a hand-entered catalogue would.   *
+   *                                                                     *
+   * The list is only ever a SEED: once the vault is populated, the       *
+   * live storage keys, IndexedDB mirror and admin saves stay fully in    *
+   * charge, and this constant is never re-applied over newer state.      *
+   * ------------------------------------------------------------------ */
+  const DEFAULT_VERIFIED_VAULT = [
+    {"id":2,"title":"Cartier Inspired Bracelet","price":30,"category":"under-30","type":"bracelets","image":"assets/products/cartier-inspired-bracelet.jpg","images":["assets/products/cartier-inspired-bracelet.jpg"],"description":"Luxury textured gold band bracelet.","badge":"","stock":null,"outOfStock":false},
+    {"id":3,"title":"Crystal Ash Hoops","price":20,"category":"under-30","type":"earrings","image":"assets/products/crystal-ash-hoops.jpg","images":["assets/products/crystal-ash-hoops.jpg"],"description":"Sparkling crystal ash luxury hoops.","badge":"","stock":0,"outOfStock":false},
+    {"id":7,"title":"Golden Bamboo Drops","price":30,"category":"under-30","type":"earrings","image":"assets/products/golden-bamboo-drops.jpg","images":["assets/products/golden-bamboo-drops.jpg"],"description":"Structured bamboo textured gold drop earrings.","badge":"","stock":0,"outOfStock":false},
+    {"id":54,"title":"iiehiia","price":23,"category":"under-30","type":"DRESS","image":"","images":[],"description":"agijaiojg","badge":"","stock":null,"outOfStock":false},
+    {"id":1,"title":"Aura Golden Stud","price":25,"category":"under-30","type":"earrings","image":"assets/products/aura-golden-stud.jpg","images":["assets/products/aura-golden-stud.jpg"],"description":"Textured gold aura stud earrings.","badge":"","stock":null,"outOfStock":false},
+    {"id":4,"title":"The Crystal Chain","price":30,"category":"under-30","type":"necklace","image":"assets/products/crystal-chain.jpg","images":["assets/products/crystal-chain.jpg"],"description":"Minimal sparkling crystal accent silver chain.","badge":"","stock":null,"outOfStock":false},
+    {"id":5,"title":"Crystal Cherry Hoops","price":20,"category":"under-30","type":"earrings","image":"assets/products/crystal-cherry-hoops.jpg","images":["assets/products/crystal-cherry-hoops.jpg"],"description":"Vibrant cherry red crystal drop hoop earrings.","badge":"","stock":null,"outOfStock":false},
+    {"id":6,"title":"Golden Nova Mini Hoops","price":15,"category":"under-30","type":"earrings","image":"assets/products/golden-nova-mini-hoops.jpg","images":["assets/products/golden-nova-mini-hoops.jpg"],"description":"Mini golden starburst huggie hoops.","badge":"","stock":null,"outOfStock":false},
+    {"id":8,"title":"Lavender Bloom","price":24,"category":"under-30","type":"ring","image":"assets/products/lavender-bloom.jpg","images":["assets/products/lavender-bloom.jpg"],"description":"Lavender crystals in rose gold accents.","badge":"","stock":null,"outOfStock":false},
+    {"id":9,"title":"Melted Metal Prism","price":30,"category":"under-30","type":"earrings","image":"assets/products/melted-metal-prism.jpg","images":["assets/products/melted-metal-prism.jpg"],"description":"Melted metal prism in gold luxury finish.","badge":"","stock":null,"outOfStock":false},
+    {"id":10,"title":"Pearl Petals Drops","price":45,"category":"under-50","type":"earrings","image":"assets/products/pearl-petals-drops.jpg","images":["assets/products/pearl-petals-drops.jpg"],"description":"Lustrous pearl petal cluster drop earrings.","badge":"","stock":null,"outOfStock":false},
+    {"id":11,"title":"Petal Stud","price":20,"category":"under-30","type":"earrings","image":"assets/products/Petal-stud.jpg","images":["assets/products/Petal-stud.jpg"],"description":"Delicate flower petal stud earrings.","badge":"","stock":null,"outOfStock":false},
+    {"id":12,"title":"Red Stone Hoops","price":20,"category":"under-30","type":"earrings","image":"assets/products/red-stone-hoops.jpg","images":["assets/products/red-stone-hoops.jpg"],"description":"Ruby red stone retro hoop collection.","badge":"","stock":null,"outOfStock":false},
+    {"id":13,"title":"Retro Red Hoops","price":45,"category":"under-50","type":"earrings","image":"assets/products/retro-red-hoops.jpg","images":["assets/products/retro-red-hoops.jpg"],"description":"Ruby red accent vintage drop hoops.","badge":"","stock":null,"outOfStock":false},
+    {"id":14,"title":"Sapphire Retro Hoops","price":30,"category":"under-30","type":"earrings","image":"assets/products/sapphire-retro-hoops.jpg","images":["assets/products/sapphire-retro-hoops.jpg"],"description":"Deep sapphire stone retro hoops.","badge":"","stock":null,"outOfStock":false},
+    {"id":15,"title":"Screw Oval Bracelet","price":35,"category":"under-50","type":"bracelets","image":"assets/products/Screw-oval bracelet.jpg","images":["assets/products/Screw-oval bracelet.jpg"],"description":"Minimalist luxury screw oval gold bangles.","badge":"","stock":null,"outOfStock":false},
+    {"id":16,"title":"Seashell Toggle Chain","price":40,"category":"under-50","type":"necklace","image":"assets/products/seashell-toggle-chain.jpg","images":["assets/products/seashell-toggle-chain.jpg"],"description":"Elegant gold toggle chain with seashell charm.","badge":"","stock":null,"outOfStock":false},
+    {"id":17,"title":"Serene Heart Pendant","price":45,"category":"under-50","type":"necklace","image":"assets/products/serene-heart-pendant.jpg","images":["assets/products/serene-heart-pendant.jpg"],"description":"Toggle chain with dual chains and vintage heart.","badge":"","stock":null,"outOfStock":false},
+    {"id":18,"title":"Silver Selen Bangles","price":35,"category":"under-50","type":"bracelets","image":"assets/products/Silver-selen bangles.jpg","images":["assets/products/Silver-selen bangles.jpg"],"description":"Sculptural wave silver selen bangle bracelet.","badge":"","stock":null,"outOfStock":false},
+    {"id":19,"title":"Silver Loop Studs","price":25,"category":"under-30","type":"earrings","image":"assets/products/Silver-Loop-studs.jpg","images":["assets/products/Silver-Loop-studs.jpg"],"description":"Minimalist luxury silver loop stud earrings.","badge":"","stock":null,"outOfStock":false},
+    {"id":20,"title":"The Eternal Love","price":35,"category":"under-50","type":"necklace","image":"assets/products/the-eternal-love.jpg","images":["assets/products/the-eternal-love.jpg"],"description":"Vintage puffy heart pendant with a classic link.","badge":"","stock":null,"outOfStock":false},
+    {"id":21,"title":"The Fourth Stone Pendant","price":30,"category":"under-30","type":"necklace","image":"assets/products/the-fourth-stone-pendant.jpg","images":["assets/products/the-fourth-stone-pendant.jpg"],"description":"Minimalist single stone gold pendant chain.","badge":"","stock":null,"outOfStock":false},
+    {"id":22,"title":"The Sapphire Heart Pendant","price":30,"category":"under-30","type":"necklace","image":"assets/products/the-sapphire-heart-pendant.jpg","images":["assets/products/the-sapphire-heart-pendant.jpg"],"description":"Deep sapphire stone heart gold pendant.","badge":"","stock":null,"outOfStock":false},
+    {"id":23,"title":"Verdant Bloom","price":28,"category":"under-30","type":"ring","image":"assets/products/verdant-bloom.jpg","images":["assets/products/verdant-bloom.jpg"],"description":"Emerald green floral accent statement piece.","badge":"","stock":null,"outOfStock":false},
+    {"id":24,"title":"Vintage Shine","price":32,"category":"under-50","type":"watch","image":"assets/products/Vintage-shine.jpg","images":["assets/products/Vintage-shine.jpg"],"description":"Celestial gold coin pendant chain.","badge":"","stock":null,"outOfStock":false},
+    {"id":25,"title":"Winter Bloom","price":28,"category":"under-30","type":"rings","image":"assets/products/winter-bloom.jpg","images":["assets/products/winter-bloom.jpg"],"description":"Textured silver crystal statement ring.","badge":"","stock":null,"outOfStock":false},
+    {"id":26,"title":"Zorei Zircon","price":25,"category":"under-30","type":"rings","image":"assets/products/zorei-zircon.jpg","images":["assets/products/zorei-zircon.jpg"],"description":"Solitaire olive zircon gemstone gold ring.","badge":"","stock":null,"outOfStock":false},
+    {"id":27,"title":"Melted Metal Chain (in Gold)","price":130,"category":"under-150","type":"necklace","image":"assets/products/melted-metal-chain-gold.jpg","images":["assets/products/melted-metal-chain-gold.jpg"],"description":"Gold glided artistic statement collection chain.","badge":"","stock":null,"outOfStock":false},
+    {"id":28,"title":"Melting Metal Chain (Silver)","price":130,"category":"under-150","type":"necklace","image":"assets/products/melting-metal-chain-silver.jpg","images":["assets/products/melting-metal-chain-silver.jpg"],"description":"Silver glided statement collection chain.","badge":"","stock":null,"outOfStock":false},
+    {"id":29,"title":"Pearl Layered Pendant","price":90,"category":"under-100","type":"necklace","image":"assets/products/pearl-layered-pendant.jpg","images":["assets/products/pearl-layered-pendant.jpg"],"description":"Classic elegant design with tear drop pearl layers.","badge":"","stock":null,"outOfStock":false},
+    {"id":30,"title":"Golden Luna Mini Hoops","price":18,"category":"under-30","type":"earrings","image":"assets/products/golden-luna-mini-hoops.jpg","images":["assets/products/golden-luna-mini-hoops.jpg"],"description":"Gold mini huggie hoops.","badge":"","stock":null,"outOfStock":false},
+    {"id":31,"title":"Golden Hexa Mini Hoops","price":15,"category":"under-30","type":"earrings","image":"assets/products/golden-hexa-mini-hoops.jpg","images":["assets/products/golden-hexa-mini-hoops.jpg"],"description":"Hexagonal textured gold mini hoops.","badge":"","stock":null,"outOfStock":false},
+    {"id":32,"title":"Golden Crystal Retro Hoops","price":20,"category":"under-30","type":"earrings","image":"assets/products/golden-crystal-retro-hoops.jpg","images":["assets/products/golden-crystal-retro-hoops.jpg"],"description":"Yellow sparkling crystal retro drop hoops.","badge":"","stock":null,"outOfStock":false},
+    {"id":33,"title":"Wine Drop Hoops","price":18,"category":"under-30","type":"earrings","image":"assets/products/wine-drop-hoops.jpg","images":["assets/products/wine-drop-hoops.jpg"],"description":"Vibrant wine red drop hoop earrings.","badge":"","stock":null,"outOfStock":false},
+    {"id":34,"title":"Rosé Mini Hoops","price":15,"category":"under-30","type":"earrings","image":"assets/products/rose-mini-hoops.jpg","images":["assets/products/rose-mini-hoops.jpg"],"description":"Asymmetrical rose mini huggie hoops.","badge":"","stock":null,"outOfStock":false},
+    {"id":35,"title":"Luna Layered Ear Cuffs Set","price":25,"category":"under-30","type":"earrings","image":"assets/products/Luna-layered-ear cuffs-set.jpg","images":["assets/products/Luna-layered-ear cuffs-set.jpg"],"description":"Layered luxury gold ear cuff set.","badge":"","stock":null,"outOfStock":false},
+    {"id":36,"title":"Honey Dew Hoops","price":18,"category":"under-30","type":"earrings","image":"assets/products/honey-dew-hoops.jpg","images":["assets/products/honey-dew-hoops.jpg"],"description":"Crystal honeydew teardrop hoop earrings.","badge":"","stock":null,"outOfStock":false},
+    {"id":37,"title":"Half Hoop Drops","price":30,"category":"under-30","type":"earrings","image":"assets/products/half-hoop-drops.jpg","images":["assets/products/half-hoop-drops.jpg"],"description":"Convertible half hoop drop earrings.","badge":"","stock":null,"outOfStock":false},
+    {"id":38,"title":"Boho Chain Earring","price":35,"category":"under-50","type":"earrings","image":"assets/products/boho-chain-earring.jpg","images":["assets/products/boho-chain-earring.jpg"],"description":"Free-spirited boho chain earrings in a refined silver finish.","badge":"","stock":null,"outOfStock":false},
+    {"id":39,"title":"Chain Loop Earrings","price":30,"category":"under-30","type":"earrings","image":"assets/products/chain-loop-earrings.jpg","images":["assets/products/chain-loop-earrings.jpg"],"description":"Sculptural linked loop earrings with a sleek modern edge.","badge":"","stock":null,"outOfStock":false},
+    {"id":40,"title":"Chunky Silver Hoops","price":32,"category":"under-50","type":"earrings","image":"assets/products/chuncy-silver-hoops.jpg","images":["assets/products/chuncy-silver-hoops.jpg"],"description":"Bold chunky silver hoops with a lustrous satin finish.","badge":"","stock":null,"outOfStock":false},
+    {"id":42,"title":"Dual Tone Oval Drops","price":40,"category":"under-50","type":"earrings","image":"assets/products/dual-tone-oval-drops-earrings.jpg","images":["assets/products/dual-tone-oval-drops-earrings.jpg"],"description":"Dual-tone oval drop earrings blending warm and cool metallics.","badge":"","stock":null,"outOfStock":false},
+    {"id":43,"title":"Garnet Glare Asymmetrical Drops","price":55,"category":"under-100","type":"earrings","image":"assets/products/garnet-glare-asymmetrical-drops.jpg","images":["assets/products/garnet-glare-asymmetrical-drops.jpg"],"description":"Asymmetrical garnet drops with a rich ruby glare finish.","badge":"","stock":null,"outOfStock":false},
+    {"id":44,"title":"Garnet Glare Drops","price":55,"category":"under-100","type":"earrings","image":"assets/products/garnet-glare-drops.jpg","images":["assets/products/garnet-glare-drops.jpg"],"description":"Classic garnet glare drop earrings with deep crimson stones.","badge":"","stock":null,"outOfStock":false},
+    {"id":45,"title":"Garnet Glare Hollow Drops","price":60,"category":"under-100","type":"earrings","image":"assets/products/garnet-glare-hollow-drops.jpg","images":["assets/products/garnet-glare-hollow-drops.jpg"],"description":"Hollow garnet drop earrings in a radiant crimson tone.","badge":"","stock":null,"outOfStock":false},
+    {"id":46,"title":"Green Crescent Earrings","price":38,"category":"under-50","type":"earrings","image":"assets/products/green-crescent-earrings.jpg","images":["assets/products/green-crescent-earrings.jpg"],"description":"Emerald crescent earrings with a soft vintage glow.","badge":"","stock":null,"outOfStock":false},
+    {"id":48,"title":"Rainbow Crystal Drops","price":52,"category":"under-100","type":"earrings","image":"assets/products/rainbow-crystal-drops.jpg","images":["assets/products/rainbow-crystal-drops.jpg"],"description":"Iridescent rainbow crystal drop earrings with prismatic sparkle.","badge":"","stock":null,"outOfStock":false},
+    {"id":49,"title":"Bianca Handcuff","price":45,"category":"under-50","type":"bracelets","image":"assets/products/bianca-handcuff.jpg","images":["assets/products/bianca-handcuff.jpg"],"description":"Sculptural bianca handcuff bracelet in a statement silhouette.","badge":"","stock":null,"outOfStock":false},
+    {"id":50,"title":"Cleopatra Handcuff","price":65,"category":"under-100","type":"bracelets","image":"assets/products/cleopatra-handcuff.jpg","images":["assets/products/cleopatra-handcuff.jpg"],"description":"Regal cleopatra handcuff bracelet with bold engraved detailing.","badge":"","stock":null,"outOfStock":false},
+    {"id":51,"title":"Kelly Gold Handcuff","price":48,"category":"under-50","type":"bracelets","image":"assets/products/kelly-gold-handcuff.jpg","images":["assets/products/kelly-gold-handcuff.jpg"],"description":"Opulent gold handcuff bracelet with a flawless mirror shine.","badge":"","stock":null,"outOfStock":false},
+    {"id":52,"title":"Melted Gold Handcuff","price":65,"category":"under-100","type":"bracelets","image":"assets/products/melted-gold-handcuff.jpg","images":["assets/products/melted-gold-handcuff.jpg"],"description":"Artistic melted gold handcuff bracelet in a fluid luxury form.","badge":"","stock":null,"outOfStock":false},
+  ];
+
+  /* ------------------------------------------------------------------ *
    * 1b. Google Apps Script backend client
    *
    * Replaces the previous Supabase client with the same surface, so the
@@ -2820,6 +2891,7 @@
     editSessionKey: EDIT_SESSION_STORAGE_KEY,
     adminIntentSessionKey: ADMIN_INTENT_SESSION_KEY,
     categories: CATEGORIES,
+    defaultVault: DEFAULT_VERIFIED_VAULT,
     resolveCategoryValue: resolveCategoryValue,
     createdCategories: readCreatedCategories,
     categorySuggestionLabels: categorySuggestionLabels,
@@ -2939,6 +3011,44 @@
      result back to the primary localStorage keys and the IndexedDB
      mirror — before the storefront boot below renders its grid. The boot
      awaits this same run via the shared memo before paint. */
+
+  /* FIRST-PAINT VAULT SEED. On a fresh deployment, a brand-new browser or
+     after a full storage reset, the "lurei_verified_products" key does not
+     exist yet — which used to leave the storefront and the collections grid
+     empty until the owner re-entered every product. This seed closes that
+     gap: when (and ONLY when) the vault is empty, the frozen 51-product
+     DEFAULT_VERIFIED_VAULT is written into it through the regular
+     merge-only writer, so the seeding behaves exactly like an admin save —
+     complete with the frozen member list, the dateAdded stamps and the
+     IndexedDB mirror. Once the vault holds anything at all, this is a
+     no-op: live storage, admin edits and the recycle bin stay fully in
+     charge, and the default list can never overwrite newer state. */
+  var seedDefaultVault = function () {
+    var existing = [];
+    try {
+      existing = readVerifiedBase();
+    } catch (error) {
+      existing = [];
+    }
+    if (existing.length) return 0; /* vault already populated — hands off */
+    if (!Array.isArray(DEFAULT_VERIFIED_VAULT) || !DEFAULT_VERIFIED_VAULT.length) {
+      return 0;
+    }
+    var seeded = ensureVerifiedVault(DEFAULT_VERIFIED_VAULT, []);
+    if (seeded) {
+      console.info(
+        "LUREÍ verified vault seeded with " + seeded + " owner products (default vault)."
+      );
+    }
+    return seeded;
+  };
+
+  /* Seed the vault before the wipe-guard reads it, so even the very first
+     save of this session is protected by the already-locked owner
+     inventory. */
+  try {
+    seedDefaultVault();
+  } catch (error) {}
 
   /* Seed the wipe-guard from the permanent vault the instant the module
      loads, so even the very first save of this session is protected by
@@ -7893,7 +8003,11 @@ Thank you!`;
     );
 
   (async () => {
-    const defaults = [];
+    /* The frozen default vault guarantees the shelf never renders empty on a
+       fresh deployment or storage reset: recoverFromAllStorage() below takes
+       priority when live storage holds anything, and this list is the last
+       line of defence when it does not. */
+    const defaults = DEFAULT_VERIFIED_VAULT;
     if (catalogueStore && typeof catalogueStore.setDefaults === "function") catalogueStore.setDefaults(defaults);
 
     const isStorefront = hasStorefrontMarkup();
