@@ -424,6 +424,101 @@
 <!-- Scripts -->
   <script src="script.js"></script>
 
+  <!-- Guaranteed storage-recovery entry point (second boot path):
+       script.js already runs a comprehensive sweep of localStorage,
+       sessionStorage and every IndexedDB database when it loads; this
+       script runs another full sweep once the DOM is ready (the sweep
+       memo clears after every completed run), so a racy first paint can
+       never leave recovered owner inventory hidden behind a blank or
+       stale shelf. Whenever the sweep restored or merged items — or the
+       grids show fewer cards than the recovered catalogue holds — the
+       store's subscribers are re-notified and every grid re-seeds from
+       the recovered catalogue automatically. Runs before the edit-mode
+       bootstrap below so the editor always decorates fully recovered
+       products. -->
+  <script>
+    (function () {
+      "use strict";
+
+      var gridElements = function () {
+        return document.querySelectorAll(
+          "#collections-container, #products-container, #new-in-grid"
+        );
+      };
+
+      var visibleCardCount = function () {
+        var grids = gridElements();
+        var total = 0;
+        for (var index = 0; index < grids.length; index++) {
+          total += grids[index].querySelectorAll(".product-card").length;
+        }
+        return total;
+      };
+
+      var runRecovery = async function () {
+        var catalogue = window.LureiCatalogue;
+        if (!catalogue || typeof catalogue.recoverFromAllStorage !== "function") return null;
+
+        var recovered = [];
+        try {
+          recovered = await catalogue.recoverFromAllStorage() || [];
+        } catch (error) {
+          console.warn(
+            "[Storage Recovery] fallback sweep failed:",
+            error && error.message
+          );
+          return null;
+        }
+
+        var report = typeof catalogue.recoveryReport === "function"
+          ? catalogue.recoveryReport()
+          : null;
+        if (report) {
+          console.info(
+            "[Storage Recovery] " + (report.recoveredCount || 0) +
+            " owner product(s) present; sources scanned: " +
+            Object.keys(report.layers || {}).length +
+            (report.purgedCount
+              ? "; " + report.purgedCount + " dummy/test row(s) permanently purged"
+              : "")
+          );
+        }
+
+        /* The sweep writes recovered items into the catalogue store. If
+           anything the sweep recovered is not on screen — a blank shelf,
+           or fewer cards than the recovered catalogue holds — push a
+           re-seed through the store's subscribers so the collections,
+           storefront, and New In grids all render the recovered
+           inventory immediately. */
+        var storeCount = 0;
+        if (catalogue.store && typeof catalogue.store.read === "function") {
+          try { storeCount = catalogue.store.read().length; } catch (error) { storeCount = 0; }
+        }
+        if (
+          recovered.length &&
+          storeCount > 0 &&
+          typeof catalogue.refreshFromStore === "function"
+        ) {
+          var visible = visibleCardCount();
+          var sweepChanged = !!(report && report.changed);
+          if (visible === 0 || (sweepChanged && visible < storeCount)) {
+            catalogue.refreshFromStore();
+          }
+        }
+
+        return recovered;
+      };
+
+      if (document.readyState === "loading") {
+        document.addEventListener("DOMContentLoaded", function () {
+          runRecovery();
+        });
+      } else {
+        runRecovery();
+      }
+    })();
+  </script>
+
   <!-- Explicit edit-mode bootstrap: the dashboard hands off with
        ?editMode=true&_ts=<timestamp> AND the session flag
        is_admin_editing_mode=true (written by the dashboard click itself).
