@@ -5681,9 +5681,14 @@ const exportCSV = () => {
             restoreBtn.textContent = "Restore";
             restoreBtn.addEventListener("click", () => {
               try {
+                /* In-flight guard: a queued second click can never double-
+                   restore (the second pass would be a harmless no-op, but
+                   the button is killed anyway for a deterministic UI). */
+                restoreBtn.disabled = true;
                 catalogueApi.restoreFromBin(entry.id);
                 showToast(`"${record.title}" restored to the live catalogue.`);
               } catch (error) {
+                restoreBtn.disabled = false;
                 showToast("Restore failed: " + (error && error.message));
               }
               renderStorageVault();
@@ -5699,9 +5704,14 @@ const exportCSV = () => {
                 `Permanently delete "${record.title}" from lurei_recycle_bin?\n\nThis is the only destructive step — the record cannot come back afterwards.`
               )) return;
               try {
+                /* In-flight guard: a queued second click can never re-run
+                   the wipe (the purge is idempotent, but the button is
+                   killed anyway so exactly one delete request ever fires). */
+                purgeBtn.disabled = true;
                 catalogueApi.purgeFromBin(entry.id);
                 showToast(`"${record.title}" permanently deleted.`);
               } catch (error) {
+                purgeBtn.disabled = false;
                 showToast("Delete failed: " + (error && error.message));
               }
               renderStorageVault();

@@ -54,6 +54,38 @@
      When empty, the handler falls back to the Brevo welcome email. */
   const FORMSPREE_FORM_ID = "";
 
+  /* Production console policy: routine success/telemetry lines are silent by
+     default. Flip the switch with localStorage.setItem("lurei_debug","true")
+     (or window.LureiDebug.enable()) to see the full sync audit trail again.
+     console.warn / console.error stay always-on — those are genuine failure
+     signals an owner should never miss. */
+  window.LureiDebug = {
+    KEY: "lurei_debug",
+    enabled: function () {
+      try {
+        return localStorage.getItem(this.KEY) === "true";
+      } catch (error) {
+        return false;
+      }
+    },
+    log: function () {
+      if (!this.enabled()) return;
+      console.info.apply(console, arguments);
+    },
+    enable: function () {
+      try {
+        localStorage.setItem(this.KEY, "true");
+      } catch (error) {}
+      return true;
+    },
+    disable: function () {
+      try {
+        localStorage.removeItem(this.KEY);
+      } catch (error) {}
+      return true;
+    },
+  };
+
   /* ------------------------------------------------------------------ *
    * 1a. DEFAULT VERIFIED VAULT — the boutique's frozen master catalogue. *
    *                                                                     *
@@ -1345,6 +1377,93 @@
       .catch(function () {});
   };
 
+  /* Recycle-bin mirror — the durable copy of `lurei_recycle_bin`. The entries
+     are stored wrapped in the bin's own shape ({id, product, deletedAt,
+     origin}) rather than as bare products, so the generic recovery sweep
+     ignores them (a binned product is deleted and tombstoned — it must never
+     be merged back into the live catalogue by recovery), while the boot-time
+     bin reconciliation reads this exact shape to re-materialize entries the
+     localStorage layer lost to a quota failure. */
+  var writeBinMirrorDb = function (entries) {
+    openCatalogueDb()
+      .then(function (db) {
+        if (!db) return;
+        try {
+          var transaction = db.transaction("catalogue", "readwrite");
+          transaction.objectStore("catalogue").put(
+            { updatedAt: new Date().toISOString(), payload: { products: entries, removed: [] } },
+            "recycleBin"
+          );
+        } catch (error) {}
+      })
+      .catch(function () {});
+  };
+
+  var readBinMirrorDb = function () {
+    return openCatalogueDb().then(function (db) {
+      if (!db) return null;
+      return new Promise(function (resolve) {
+        try {
+          var transaction = db.transaction("catalogue", "readonly");
+          var request = transaction.objectStore("catalogue").get("recycleBin");
+          request.onsuccess = function () {
+            var payload = request.result && request.result.payload;
+            resolve(
+              payload && Array.isArray(payload.products) ? payload.products : null
+            );
+          };
+          request.onerror = function () {
+            resolve(null);
+          };
+        } catch (error) {
+          resolve(null);
+        }
+      });
+    }).catch(function () {
+      return null;
+    });
+  };
+
+  /* Boot-time bin reconciliation: if a quota failure ever cost the
+     localStorage bin an entry, the IndexedDB mirror hands it back. Entries
+     already in localStorage are never touched, and nothing is ever removed
+     by this path — it can only restore what was lost. */
+  var reconcileRecycleBin = function () {
+    return readBinMirrorDb().then(function (mirrored) {
+      if (!Array.isArray(mirrored) || !mirrored.length) return false;
+      var known = {};
+      readRecycleBin().forEach(function (entry) {
+        known[String(entry.id)] = true;
+      });
+      var missing = mirrored.filter(function (entry) {
+        return (
+          entry &&
+          isPlainProduct(entry.product) &&
+          !known[String(entry.id)]
+        );
+      });
+      if (!missing.length) return false;
+      var bin = readRecycleBin();
+      missing.forEach(function (entry) {
+        bin.unshift({
+          id: String(entry.id),
+          product: sanitize(entry.product),
+          deletedAt: normalizeDateAdded(entry.deletedAt) || new Date().toISOString(),
+          origin: String(entry.origin || "recovered"),
+        });
+      });
+      writeRecycleBin(bin);
+      console.warn(
+        "[Catalogue] recycle bin: re-materialized " +
+          missing.length +
+          " lost entry(ies) from the IndexedDB mirror."
+      );
+      return true;
+    }).catch(function () {
+      return false;
+    });
+  };
+
   var readCatalogueDb = function () {
     return openCatalogueDb()
       .then(function (db) {
@@ -1876,9 +1995,40 @@
   };
 
   var writeRecycleBin = function (entries) {
+    var payload = JSON.stringify(entries);
     try {
-      localStorage.setItem(RECYCLE_BIN_STORAGE_KEY, JSON.stringify(entries));
-    } catch (error) {}
+      localStorage.setItem(RECYCLE_BIN_STORAGE_KEY, payload);
+    } catch (quotaError) {
+      /* Quota / private-mode fallback: retry with a slim payload (photos and
+         long descriptions dropped) so the binned record — its id, price,
+         category, stock and deletion stamp — still survives locally instead
+         of vanishing because the bin grew past the remaining quota. */
+      try {
+        var slim = entries.map(function (entry) {
+          var lite = {};
+          for (var field in entry) {
+            if (Object.prototype.hasOwnProperty.call(entry, field)) lite[field] = entry[field];
+          }
+          if (isPlainProduct(lite.product)) {
+            var product = sanitize(lite.product);
+            delete product.images;
+            delete product.description;
+            lite.product = product;
+          }
+          return lite;
+        });
+        localStorage.setItem(RECYCLE_BIN_STORAGE_KEY, JSON.stringify(slim));
+      } catch (slimError) {
+        console.warn(
+          "[Catalogue] recycle bin could not be written to localStorage; the IndexedDB mirror below still holds it:",
+          quotaError && quotaError.message
+        );
+      }
+    }
+    /* Write-through mirror: the full (unslimmed) bin always lands in the
+       IndexedDB mirror, and a boot-time reconciliation re-materializes any
+       entry the localStorage layer lost. */
+    writeBinMirrorDb(entries);
   };
 
   var addToRecycleBin = function (record) {
@@ -2752,7 +2902,7 @@
         })
         .then(function (result) {
           var saved = result && result.product ? result.product : {};
-          console.info(
+          window.LureiDebug.log(
             "LUREÍ product mirrored to the Google Sheets Products tab:",
             saved["Product ID"] || saved.id || product.title
           );
@@ -2784,7 +2934,7 @@
       backend
         .deleteProduct(key)
         .then(function (result) {
-          console.info(
+          window.LureiDebug.log(
             "LUREÍ product deleted from the Google Sheets Products tab:",
             (result && result.deletedId) || key
           );
@@ -3279,7 +3429,7 @@
     }
     var seeded = ensureVerifiedVault(DEFAULT_VERIFIED_VAULT, []);
     if (seeded) {
-      console.info(
+      window.LureiDebug.log(
         "LUREÍ verified vault seeded with " + seeded + " owner products (default vault)."
       );
     }
@@ -3315,6 +3465,12 @@
   /* Promote a newer IndexedDB payload (e.g. saved after a localStorage quota
      failure) as soon as the database is available. */
   hydrateFromIndexedDb();
+
+  /* Re-materialize any recycle-bin entry the localStorage layer lost to a
+     quota failure, from the durable IndexedDB bin mirror. */
+  try {
+    reconcileRecycleBin().catch(function () {});
+  } catch (binReconcileError) {}
 })();
 
 /* =====================================================================
@@ -7226,6 +7382,9 @@ const stockLabelFor = (count) => `STOCK ${count} LEFT`;
     checkoutForm.hidden = false;
     checkoutSuccess.hidden = true;
     checkoutForm.reset();
+    /* A fresh checkout session may place a new order; the double-submit
+       guard below is per-session, not per-page-load. */
+    checkoutForm.dataset.placingOrder = "";
     payOptions.forEach((radio) => {
       radio.closest(".pay-option").classList.toggle("is-selected", radio.checked);
     });
@@ -7483,8 +7642,15 @@ const stockLabelFor = (count) => `STOCK ${count} LEFT`;
   if (checkoutForm) checkoutForm.addEventListener("submit", (event) => {
     event.preventDefault();
     event.stopPropagation();
+    /* Double-submit guard: a second click / Enter press while the order is
+       being written must never mint a second order reference and a second
+       Sheet row. The guard is sticky until resetCheckoutView() opens the
+       next checkout session. */
+    if (checkoutForm.dataset.placingOrder === "1") return;
+    checkoutForm.dataset.placingOrder = "1";
     if (!checkoutForm.checkValidity()) {
       checkoutForm.reportValidity();
+      checkoutForm.dataset.placingOrder = "";
       return;
     }
 
@@ -7604,7 +7770,7 @@ const stockLabelFor = (count) => `STOCK ${count} LEFT`;
       window.LureiBackend.insertOrder(orderRecord)
         .then((result) => {
           if (result && result.skipped && result.reason === "not-configured") {
-            console.info("[Orders] Apps Script not configured; order kept in localStorage only.");
+            window.LureiDebug.log("[Orders] Apps Script not configured; order kept in localStorage only.");
           }
         })
         .catch((uploadError) => {
@@ -8407,10 +8573,10 @@ Thank you!`;
         } else if (catalogueStore && typeof catalogueStore.setDefaults === "function") {
           catalogueStore.setDefaults(live);
         }
-        console.info("LUREÍ products loaded from Google Sheets.");
+        window.LureiDebug.log("LUREÍ products loaded from Google Sheets.");
       }
     } catch (error) {
-      console.info("LUREÍ kept fallback catalogue:", error.message);
+      window.LureiDebug.log("LUREÍ kept fallback catalogue:", error.message);
     }
   })();
 

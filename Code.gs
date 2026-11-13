@@ -238,11 +238,20 @@ function prop_(name, fallback) {
 }
 
 /* Open until the owner sets ADMIN_API_KEY (see header), then enforced.
-   Reads stay public either way — that is the storefront's design. */
+   Reads stay public either way — that is the storefront's design.
+   The comparison walks the expected key's full length regardless of the
+   input, so a crafted key cannot probe the secret byte-by-byte through
+   response timing. */
 function isAdmin_(key) {
   var expected = prop_("ADMIN_API_KEY", "");
   if (!expected) return true;
-  return String(key || "") === expected;
+  var given = String(key || "");
+  var diff = expected.length ^ given.length;
+  var length = Math.max(expected.length, given.length);
+  for (var i = 0; i < length; i++) {
+    diff |= (given.charCodeAt(i) || 0) ^ (expected.charCodeAt(i) || 0);
+  }
+  return diff === 0;
 }
 
 function withLock_(fn) {
@@ -699,6 +708,17 @@ function addProduct_(product) {
     product = product && typeof product === "object" ? product : {};
     var sheet = ensureProductsSheet_();
     var record = buildProductRow_(product);
+
+    /* Secure payload validation (mirrors the client's isUsable rule): a
+       product without a name or a real price must never reach the tab —
+       a junk row would surface in every storefront re-fetch forever. */
+    if (!String(record.Title || "").trim()) {
+      throw new Error("addProduct needs a product title.");
+    }
+    var price = Number(record.Price);
+    if (!isFinite(price) || price <= 0) {
+      throw new Error("addProduct needs a price above 0.");
+    }
 
     /* Extra columns for non-empty extras, so a re-fetch from Sheets restores
        the full record (badge, stock, gallery, sold-out flag) instead of a
