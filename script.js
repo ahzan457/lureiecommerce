@@ -6053,15 +6053,18 @@ const stockLabelFor = (count) => `STOCK ${count} LEFT`;
   let catalogue = [];
   let topVisible = 0;
 
-  /* Homepage "Top Selling" horizontal carousel: 12 fixed products in
-   * 3 batches of 4, auto-scrolling right every CAROUSEL_INTERVAL ms as a
-   * continuous infinite loop (a cloned first batch creates the seam). */
+  /* Homepage "Top Selling" horizontal carousel: the 12 curated top sellers
+   * (3 fixed batches of 4) lead the rotation, and every admin-added piece
+   * joins the pool in its own batches right after them. The pool is rebuilt
+   * on every rotation start, so a publish from the admin dashboard is in
+   * the slider on the next render — no manual step, no UI change. */
   const TOP_SELLER_BATCHES = [
     [1, 5, 8, 11],
     [2, 4, 10, 16],
     [20, 27, 29, 32],
   ];
   const TOP_SELLER_IDS = TOP_SELLER_BATCHES.flat();
+  const CAROUSEL_BATCH_SIZE = 4;
   const CAROUSEL_INTERVAL = 2000;
 
   const FILTERS = {
@@ -6092,11 +6095,87 @@ const stockLabelFor = (count) => `STOCK ${count} LEFT`;
   let carouselTrack = null;
   let carouselIndex = 0;
   let carouselTimer = null;
+  let carouselBatchCount = TOP_SELLER_BATCHES.length;
 
-  const topBatchProducts = (index) =>
-    catalogue.filter((p) => TOP_SELLER_BATCHES[index].includes(Number(p.id)));
+  /* The admin additions eligible for the slider, merged from BOTH sources —
+     the active store catalogue's published pieces (store.created(), the same
+     list the New In rail uses) and the lurei_new_admin_products registry
+     (adminNewProducts()) — deduped by id first, then by lowercase title.
+     Only pieces that are live in the CURRENT catalogue (id or title match)
+     survive, so a recycle-binned or permanently deleted product can never
+     slip back into the rotation. Newest publish first. */
+  const carouselAdminAdditions = () => {
+    const api = window.LureiCatalogue;
+    const merged = [];
+    const seenId = new Set();
+    const seenTitle = new Set();
+    const pushUnique = (product) => {
+      if (!product || !product.title) return;
+      const idKey = product.id === null || product.id === undefined ? "" : String(product.id);
+      const titleKey = String(product.title).trim().toLowerCase();
+      if (idKey && seenId.has(idKey)) return;
+      if (titleKey && seenTitle.has(titleKey)) return;
+      if (idKey) seenId.add(idKey);
+      if (titleKey) seenTitle.add(titleKey);
+      merged.push(product);
+    };
+    (catalogueAdditions() || []).forEach(pushUnique);
+    if (api && typeof api.adminNewProducts === "function") {
+      try {
+        (api.adminNewProducts() || []).forEach(pushUnique);
+      } catch (error) {
+        /* Registry unreadable — the active-catalogue list above still holds. */
+      }
+    }
 
-  const BATCH_STEP = 100 / TOP_SELLER_BATCHES.length;
+    const liveById = new Map(
+      catalogue.map((p) => [p.id === null || p.id === undefined ? "" : String(p.id), p])
+    );
+    const liveByTitle = new Map(
+      catalogue.map((p) => [String(p.title).trim().toLowerCase(), p])
+    );
+    return merged
+      .map((row) => {
+        const idKey = row.id === null || row.id === undefined ? "" : String(row.id);
+        return (
+          liveById.get(idKey) ||
+          liveByTitle.get(String(row.title).trim().toLowerCase()) ||
+          null
+        );
+      })
+      .filter(Boolean);
+  };
+
+  /* The rotation pool: the curated top sellers in their original batch order,
+     then every live admin addition. Chunked into CAROUSEL_BATCH_SIZE-sized
+     pages; a final short page is padded by cycling from the pool's start, so
+     every batch always renders the full 4-column grid and the slide
+     geometry/timing never wobbles no matter how many pieces the owner adds. */
+  const carouselBatches = () => {
+    const byId = new Map(catalogue.map((p) => [Number(p.id), p]));
+    const pool = [];
+    TOP_SELLER_IDS.forEach((id) => {
+      const product = byId.get(id);
+      if (product) pool.push(product);
+    });
+    pool.push(...carouselAdminAdditions());
+
+    const batches = [];
+    for (let start = 0; start < pool.length; start += CAROUSEL_BATCH_SIZE) {
+      const page = [];
+      for (let i = 0; i < CAROUSEL_BATCH_SIZE; i++) {
+        page.push(pool[(start + i) % pool.length]);
+      }
+      batches.push(page);
+    }
+    return batches;
+  };
+
+  /* One batch = one container width. With N batches the translate step is
+     100/N % of the track — identical to the stock 3-batch CSS geometry
+     (300% track / 33.333% batch) and correct for any batch count. */
+  const carouselStep = () =>
+    100 / (carouselBatchCount || TOP_SELLER_BATCHES.length);
 
   const carouselSlide = () => {
     if (!carouselTrack) return;
@@ -6106,7 +6185,7 @@ const stockLabelFor = (count) => `STOCK ${count} LEFT`;
       carouselTimer = window.setInterval(carouselSlide, CAROUSEL_INTERVAL);
     }
     carouselIndex++;
-    if (carouselIndex > TOP_SELLER_BATCHES.length) {
+    if (carouselIndex > carouselBatchCount) {
       /* At the cloned first batch — snap back to the real one instantly. */
       carouselIndex = 0;
       carouselTrack.style.transition = "none";
@@ -6115,20 +6194,29 @@ const stockLabelFor = (count) => `STOCK ${count} LEFT`;
       carouselTrack.style.transition = "";
       return;
     }
-    carouselTrack.style.transform = `translate3d(-${carouselIndex * BATCH_STEP}%, 0, 0)`;
+    carouselTrack.style.transform = `translate3d(-${carouselIndex * carouselStep()}%, 0, 0)`;
   };
 
   const startTopRotation = () => {
-    if (!topGrid || catalogue.length < TOP_SELLER_IDS.length) return;
+    if (!topGrid) return;
+
+    const batches = carouselBatches();
+    const additions = carouselAdminAdditions();
+    /* Don't spin up a skeleton carousel while the catalogue is still loading:
+       wait for the curated dozen, or for at least one admin addition. */
+    if (batches.length < TOP_SELLER_BATCHES.length && !additions.length) return;
 
     const track = document.createElement("div");
     track.className = "top-selling-track";
-    TOP_SELLER_BATCHES.forEach((batchIds) => {
+    /* Dynamic geometry: N batches plus the cloned seam page. The inline
+       widths reproduce the stock CSS exactly at N=3 (300% / 33.333%) and
+       scale automatically when admin additions extend the pool. */
+    track.style.width = `${batches.length * 100}%`;
+    batches.forEach((pageProducts) => {
       const page = document.createElement("div");
       page.className = "top-selling-batch";
-      catalogue
-        .filter((p) => batchIds.includes(Number(p.id)))
-        .forEach((product, i) => page.appendChild(buildCard(product, i)));
+      page.style.width = `${100 / batches.length}%`;
+      pageProducts.forEach((product, i) => page.appendChild(buildCard(product, i)));
       track.appendChild(page);
     });
     /* Append a clone of the first batch so the loop is seamless. */
@@ -6136,6 +6224,7 @@ const stockLabelFor = (count) => `STOCK ${count} LEFT`;
 
     topGrid.replaceChildren(track);
     carouselTrack = track;
+    carouselBatchCount = batches.length;
     carouselIndex = 0;
 
     /* The interval is created once and never paused, so auto-scroll always
