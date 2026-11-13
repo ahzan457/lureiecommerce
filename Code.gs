@@ -58,6 +58,21 @@ var ORDER_HEADERS = [
   "Date",
 ];
 
+/* Canonical header row for the "Products" tab. The tab is created on demand
+   (see ensureProductsSheet_) the first time an admin publishes a product, so
+   the spreadsheet needs no manual setup. Extra catalogue fields a product
+   carries (Type, Badge, Stock, Images, Out Of Stock) are appended as
+   additional columns only when present — the base schema stays exactly this. */
+var PRODUCT_HEADERS = [
+  "Product ID",
+  "Title",
+  "Price",
+  "Category",
+  "Image",
+  "Description",
+  "Date Added",
+];
+
 /* ============================ HTTP entry points ========================= */
 
 function doGet(e) {
@@ -228,10 +243,55 @@ function productsSheet_() {
   return null;
 }
 
-function requireProducts_() {
+/* Get-or-create the "Products" tab, positioned directly after "Orders".
+   A brand-new tab gets the canonical PRODUCT_HEADERS header row (bolded).
+   An existing tab is left untouched — its own header order always wins, so
+   legacy spreadsheets keep working. Returns the ready-to-write sheet. */
+function ensureProductsSheet_() {
   var sheet = productsSheet_();
-  if (!sheet) throw new Error('No "Products" sheet in this spreadsheet.');
+  if (sheet) {
+    ensureProductHeaders_(sheet);
+    return sheet;
+  }
+  var spreadsheet = ss_();
+  var sheets = spreadsheet.getSheets();
+  var insertAt = -1;
+  for (var i = 0; i < sheets.length; i++) {
+    if (sheets[i].getName() === "Orders") {
+      insertAt = i + 1; /* right next to Orders */
+      break;
+    }
+  }
+  try {
+    sheet =
+      insertAt > -1 && insertAt <= sheets.length
+        ? spreadsheet.insertSheet("Products", insertAt)
+        : spreadsheet.insertSheet("Products");
+  } catch (err) {
+    sheet = spreadsheet.insertSheet("Products");
+  }
+  ensureProductHeaders_(sheet);
   return sheet;
+}
+
+/* Bootstrap the canonical header row on an empty Products tab only; an
+   existing header row is never rewritten. */
+function ensureProductHeaders_(sheet) {
+  if (sheet.getLastRow() >= 1 && sheet.getLastColumn() >= 1) {
+    var first = String(sheet.getRange(1, 1).getValue());
+    if (first !== "") return; /* sheet already has its own header row */
+  }
+  sheet
+    .getRange(1, 1, 1, PRODUCT_HEADERS.length)
+    .setValues([PRODUCT_HEADERS]);
+  sheet.getRange(1, 1, 1, PRODUCT_HEADERS.length).setFontWeight("bold");
+}
+
+function requireProducts_() {
+  /* Was a hard throw when the tab was missing, which made the very first
+     admin publish fail with 'No "Products" sheet in this spreadsheet.' The
+     tab is now created on demand, so a fresh spreadsheet works immediately. */
+  return ensureProductsSheet_();
 }
 
 function headers_(sheet) {
@@ -558,17 +618,97 @@ function readProducts_() {
   return result;
 }
 
+/* Maps any client payload (flat sheet row or full storefront product object)
+   onto the canonical Products-tab column names. Category carries the
+   storefront's shelving type (Earrings, Necklaces, Dresses…) — the field the
+   owner picks in the editor — with the price-bucket value kept only as a
+   fallback, so the tab reads like the boutique's own catalogue. */
+function buildProductRow_(product) {
+  var type = pick_(product, ["type", "Type"], "");
+  var category = pick_(product, ["category", "Category"], "");
+  var images = pick_(product, ["images", "Images"], "");
+  if (images && typeof images === "object" && images.length !== undefined) {
+    images = Array.prototype.join.call(images, " | ");
+  }
+  return {
+    "Product ID": String(pick_(product, ["id", "ID", "product_id", "Product ID"], "")),
+    Title: pick_(product, ["title", "name", "Title", "Product Name"], ""),
+    Price: pick_(product, ["price", "Price"], ""),
+    Category: type !== "" && type !== undefined && type !== null ? type : category,
+    Image: pick_(product, ["image", "Image"], ""),
+    Description: pick_(product, ["description", "desc", "Description"], ""),
+    "Date Added": pick_(
+      product,
+      ["dateAdded", "date_added", "Date Added", "Added"],
+      new Date().toISOString()
+    ),
+    /* Extras — appended as columns only when the product actually carries
+       them, so the base schema above stays exactly as documented. */
+    Type: type,
+    Badge: pick_(product, ["badge", "Badge"], ""),
+    Stock: pick_(product, ["stock", "Stock"], ""),
+    "Out Of Stock":
+      pick_(product, ["outOfStock", "Out Of Stock"], false) === true ? "TRUE" : "",
+    Images: images,
+  };
+}
+
+/* Resolves an existing Products-tab row for a Product ID, trying the
+   canonical header first and then the legacy spellings. Returns the row
+   number or null. Mirrors findOrderRow_'s normalized comparison. */
+function findProductRow_(sheet, id) {
+  var names = ["Product ID", "ID", "id", "product_id", "ProductID"];
+  for (var i = 0; i < names.length; i++) {
+    var row = findRowBy_(sheet, names[i], id);
+    if (row) return row;
+  }
+  return null;
+}
+
 function addProduct_(product) {
   return withLock_(function () {
     product = product && typeof product === "object" ? product : {};
-    var sheet = requireProducts_();
+    var sheet = ensureProductsSheet_();
+    var record = buildProductRow_(product);
+
+    /* Extra columns for non-empty extras, so a re-fetch from Sheets restores
+       the full record (badge, stock, gallery, sold-out flag) instead of a
+       lossy 7-field row. Only columns that carry data are created. */
+    var extras = ["Type", "Badge", "Stock", "Out Of Stock", "Images"];
+    for (var i = 0; i < extras.length; i++) {
+      var value = record[extras[i]];
+      if (value === undefined || value === null || value === "") continue;
+      if (columnByNames_(sheet, [extras[i]]) === -1) {
+        sheet.getRange(1, sheet.getLastColumn() + 1).setValue(extras[i]);
+      }
+    }
+
     var head = headers_(sheet);
-    if (!head.length) throw new Error("The Products sheet has no header row.");
+    if (!head.length) {
+      sheet
+        .getRange(1, 1, 1, PRODUCT_HEADERS.length)
+        .setValues([PRODUCT_HEADERS]);
+      sheet.getRange(1, 1, 1, PRODUCT_HEADERS.length).setFontWeight("bold");
+      head = PRODUCT_HEADERS.slice();
+    }
     var row = head.map(function (h) {
-      var value = matchRecordKey_(product, h);
+      var value = matchRecordKey_(record, h);
       return value === undefined || value === null ? "" : value;
     });
+
+    /* Idempotent by Product ID (the SYNC CONTRACT in the file header): a
+       retried request updates the one row instead of duplicating it. A blank
+       Product ID always appends — there is nothing to dedupe against. */
+    var existingRow = record["Product ID"]
+      ? findProductRow_(sheet, record["Product ID"])
+      : null;
+    if (existingRow) {
+      sheet.getRange(existingRow, 1, 1, head.length).setValues([row]);
+      SpreadsheetApp.flush();
+      return rowObject_(head, sheet.getRange(existingRow, 1, 1, head.length).getValues()[0]);
+    }
     sheet.appendRow(row);
+    SpreadsheetApp.flush();
     return rowObject_(head, row);
   });
 }

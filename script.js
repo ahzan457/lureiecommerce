@@ -23,7 +23,7 @@
   /* Deployed Google Apps Script Web App (Deploy > New deployment > Web app,
      Execute as: Me, Who has access: Anyone).
      Keep the trailing /exec - the /dev URL only works while you are editing. */
-  const APPS_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbx6vzvoMXqHyK1XYW6aO68P5oP_OBosB_b-RASaM-Ji-RoWcHDssuvnDne-ghLO7jm8/exec";
+  const APPS_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbxglfbxI7NZw6Q1E5vc1_XFnA9EvMHwUt6GD0e_SH80aRcZGggpWIwnv0v3_VEZqyXU/exec";
 
   /* Shared secret for admin-only Sheet writes (add/update product, update stock,
      change or delete an order). Must match the ADMIN_API_KEY Script Property in
@@ -2604,6 +2604,61 @@
    * Store API
    * ------------------------------------------------------------------ */
 
+  /* ------------------------------------------------------------------ *
+   * Google Sheets mirror — admin-added products → "Products" tab
+   * ------------------------------------------------------------------ *
+   * Every admin publish saves locally FIRST (master store +
+   * lurei_new_admin_products + the IndexedDB mirror), and is then mirrored
+   * to the configured Apps Script Web App (action "addProduct") so the
+   * piece also lands in the "Products" tab of the boutique spreadsheet.
+   * The mirror is fire-and-forget: a Sheets failure (quota, offline,
+   * unconfigured URL) is logged for the owner but must never surface as a
+   * storefront error or undo the local save — local storage stays the
+   * system of record, Sheets is the durable cloud copy.
+   * ------------------------------------------------------------------ */
+  var mirrorAdminProductToSheets = function (product) {
+    try {
+      var backend = window.LureiBackend;
+      if (!backend || typeof backend.isConfigured !== "function" || !backend.isConfigured()) {
+        return; /* no Web App URL configured — local-only save (by design) */
+      }
+      if (typeof backend.addProduct !== "function") return;
+      backend
+        .addProduct({
+          /* Full record: the canonical 7 Sheets columns plus the extra
+             fields Code.gs preserves as additional columns, so a re-fetch
+             from the Products tab rebuilds the same product. */
+          id: product.id,
+          title: product.title,
+          price: product.price,
+          category: product.category || "",
+          type: product.type || "",
+          image: product.image || "",
+          images: Array.isArray(product.images) ? product.images : [],
+          description: product.description || "",
+          badge: product.badge || "",
+          stock: product.stock,
+          outOfStock: product.outOfStock === true,
+          dateAdded: product.dateAdded || new Date().toISOString(),
+        })
+        .then(function (result) {
+          var saved = result && result.product ? result.product : {};
+          console.info(
+            "LUREÍ product mirrored to the Google Sheets Products tab:",
+            saved["Product ID"] || saved.id || product.title
+          );
+        })
+        .catch(function (error) {
+          console.warn(
+            "LUREÍ could not mirror the product to Google Sheets (local copy is safe):",
+            error && error.message ? error.message : error
+          );
+        });
+    } catch (mirrorError) {
+      /* A mirror exception must never break the admin save. */
+    }
+  };
+
   var store = {
     storageKey: MASTER_STORAGE_KEY,
     categories: CATEGORIES,
@@ -2696,6 +2751,10 @@
       });
       next.products.push(product);
       commit(next);
+      /* Mirror the new piece to the Google Sheets "Products" tab (best
+         effort — the local saves above are already committed and remain
+         the system of record). */
+      mirrorAdminProductToSheets(product);
       return product;
     },
 
@@ -5188,17 +5247,22 @@ const stockLabelFor = (count) => `STOCK ${count} LEFT`;
     return payload
       .map((row) => {
         if (!row || typeof row !== "object") return null;
-        const image = row.image ?? row.img ?? row.image_url ?? row["Image URL"] ?? null;
-        const title = row.title ?? row.name ?? row["Product Name"] ?? null;
+        /* Accepts both the legacy lowercase spellings and the canonical
+           Title Case headers of the "Products" tab that admin publishes
+           mirror into (Product ID / Title / Price / Category / Image /
+           Description / Date Added), so a Sheets round-trip restores the
+           full record instead of dropping id, type or the shelving category. */
+        const image = row.image ?? row.img ?? row.image_url ?? row["Image URL"] ?? row["Image"] ?? null;
+        const title = row.title ?? row.name ?? row["Product Name"] ?? row["Title"] ?? null;
         /* First candidate is the best local guess; wireImage() retries the rest
            if that file is missing, so a stale folder heals itself. */
         const normalizedImage = productImageCandidates(image, title)[0];
         return {
-          id: row.id ?? row.ID ?? row.product_id,
+          id: row.id ?? row.ID ?? row.product_id ?? row["Product ID"] ?? row["ID"],
           title: title,
           price: toNumber(row.price ?? row.Price ?? row["Price (AED)"]),
-          category: row.category ?? row.filter ?? null,
-          type: row.type ?? row.kind ?? null,
+          category: row.category ?? row.filter ?? row["Category"] ?? null,
+          type: row.type ?? row.kind ?? row["Type"] ?? null,
           image: normalizedImage,
           fallbackImage: row.fallback_image ?? row.fallbackImage ?? null,
           description: row.description ?? row.Description ?? row.desc ?? null,
@@ -5210,7 +5274,7 @@ const stockLabelFor = (count) => `STOCK ${count} LEFT`;
           /* Storage/creation stamp travels with the row when the sheet
              provides one, so a synced product never loses its exact
              "when was this stored?" answer. */
-          dateAdded: row.dateAdded ?? row.Added ?? row.added ?? null,
+          dateAdded: row.dateAdded ?? row.Added ?? row.added ?? row["Date Added"] ?? null,
         };
       })
       .filter((p) => p && p.title && p.price !== null && p.price > 0)
