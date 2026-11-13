@@ -36,6 +36,8 @@
   *        deleteOrder       { orderId } -> { status: "success", deletedId, ok: true }
   *        archiveOrder      { order }   -> marks the row delivered
   *        addProduct / updateProduct / updateStock -> generic header-mapped writes
+   *        deleteProduct     { id } -> removes the row from the "Products"
+   *                            tab by Product ID (Recycle Bin permanent delete)
   *
   * SYNC CONTRACT (production hardening)
   *   Reads should be fetched with cache: 'no-store' plus a cache-buster
@@ -126,6 +128,33 @@ function doPost(e) {
       switch (action) {
         case "addProduct":
           return out_({ ok: true, product: addProduct_(payload.product || payload) });
+        case "deleteProduct": {
+          /* Recycle-bin Permanent Delete: removes the row from the "Products"
+             tab by Product ID. Accepts every id spelling the clients send
+             (id / productId / product_id / nested inside product) so a valid
+             delete is never refused for a key-name mismatch. */
+          var rawProduct = payload.product && typeof payload.product === "object" ? payload.product : null;
+          var deleteProductId =
+            payload.id !== undefined && payload.id !== null && payload.id !== ""
+              ? payload.id
+              : payload.productId !== undefined && payload.productId !== null && payload.productId !== ""
+                ? payload.productId
+                : payload.product_id !== undefined && payload.product_id !== null && payload.product_id !== ""
+                  ? payload.product_id
+                  : payload["Product ID"] !== undefined && payload["Product ID"] !== null && payload["Product ID"] !== ""
+                    ? payload["Product ID"]
+                    : rawProduct
+                      ? rawProduct.id || rawProduct.productId || rawProduct.product_id || rawProduct["Product ID"] || ""
+                      : "";
+          var deletedProductId = deleteProduct_(deleteProductId);
+          return out_({
+            status: "success",
+            deletedId: deletedProductId,
+            ok: true,
+            deleted: deletedProductId,
+            message: "Product deleted successfully",
+          });
+        }
         case "updateProduct":
           return out_({ ok: true, product: updateProduct_(payload.product || payload) });
         case "updateStock": {
@@ -710,6 +739,25 @@ function addProduct_(product) {
     sheet.appendRow(row);
     SpreadsheetApp.flush();
     return rowObject_(head, row);
+  });
+}
+
+/* Recycle-bin Permanent Delete for the "Products" tab: resolves the row by
+   Product ID (normalized comparison, legacy header spellings included) and
+   deletes it. ID-based, never index-based — row numbers shift after every
+   delete, so the row is always re-resolved at write time inside the script
+   lock. Throws "No product with id" when the row does not exist; the client
+   treats that as already-gone success, so retried requests stay idempotent. */
+function deleteProduct_(id) {
+  return withLock_(function () {
+    var raw = String(id === undefined || id === null ? "" : id).trim();
+    if (!raw) throw new Error("deleteProduct needs an id.");
+    var sheet = requireProducts_();
+    var row = findProductRow_(sheet, raw);
+    if (!row) throw new Error("No product with id " + raw);
+    sheet.deleteRow(row);
+    SpreadsheetApp.flush();
+    return raw;
   });
 }
 

@@ -535,6 +535,24 @@
     addProduct: (product) => gasRequest("addProduct", { product }),
     updateProduct: (product) => gasRequest("updateProduct", { product }),
     updateStock: (id, stock) => gasRequest("updateStock", { id, stock }),
+
+    /* Recycle-bin Permanent Delete: removes the product's row from the
+       "Products" tab by Product ID. Idempotent like deleteOrder — a "No
+       product with id" reply means the row is already gone (double-click,
+       retried request, or an add that never reached Sheets), so it is
+       treated as success and the local wipe stands. */
+    deleteProduct: async (productId) => {
+      const id = String(productId === undefined || productId === null ? "" : productId).trim();
+      if (!id) throw new Error("deleteProduct needs an id.");
+      try {
+        return await gasRequest("deleteProduct", { id: id });
+      } catch (error) {
+        if (/No product with id/i.test(String((error && error.message) || error || ""))) {
+          return { ok: true, alreadyGone: true, deletedId: id };
+        }
+        throw error;
+      }
+    },
   };
 
   /* Assigned before the catalogue store below, which captures this reference
@@ -1679,6 +1697,97 @@
     return vault.length;
   };
 
+  /* PERMANENT VAULT WIPE — the deliberate destructive exception to the
+     merge-only rule above, used only by the Recycle Bin's Permanent Delete.
+     Removes the purged rows (matched by id AND frozen-title) from
+     `lurei_verified_products`, drops their titles from the frozen member
+     list, and also forgets them from the in-memory wipe-guard inventory so
+     verifiedProtectionList() can never re-attach them. The tombstone in the
+     master store stays behind as the final resurrection guard — it is a
+     deletion marker, not product data. */
+  var purgeVerifiedRows_ = function (ids, titles) {
+    var wantedIds = {};
+    (Array.isArray(ids) ? ids : [ids]).forEach(function (id) {
+      if (id !== null && id !== undefined && String(id) !== "") wantedIds[String(id)] = true;
+    });
+    var wantedTitles = {};
+    (Array.isArray(titles) ? titles : [titles]).forEach(function (title) {
+      var key = normalizeTitle(title);
+      if (key) wantedTitles[key] = true;
+    });
+    if (!Object.keys(wantedIds).length && !Object.keys(wantedTitles).length) return false;
+
+    var parsed = parseStoredJSON(readFlag(VERIFIED_STORAGE_KEY), null);
+    var rows = null;
+    var members = null;
+    if (Array.isArray(parsed)) {
+      rows = parsed;
+    } else if (isPlainProduct(parsed) && Array.isArray(parsed.products)) {
+      rows = parsed.products;
+      if (Array.isArray(parsed.members)) members = parsed.members.slice();
+    }
+    if (!rows) return false;
+
+    var kept = rows.filter(function (row) {
+      if (!isPlainProduct(row)) return true;
+      var rowId = row.id === null || row.id === undefined ? "" : String(row.id);
+      var rowTitleKey = normalizeTitle(row.title);
+      if (rowId && wantedIds[rowId]) return false;
+      if (rowTitleKey && wantedTitles[rowTitleKey]) return false;
+      return true;
+    });
+    if (kept.length === rows.length) return false;
+
+    if (members) {
+      members = members.filter(function (title) {
+        return !wantedTitles[normalizeTitle(title)];
+      });
+    }
+
+    var write = function (payloadRows, payloadMembers) {
+      var payload = {
+        version: STORE_VERSION,
+        products: payloadRows,
+        members: payloadMembers || payloadRows.map(function (row) {
+          return normalizeTitle(row.title);
+        }).filter(Boolean),
+        lockedAt: new Date().toISOString(),
+      };
+      try {
+        localStorage.setItem(VERIFIED_STORAGE_KEY, JSON.stringify(payload));
+      } catch (error) {
+        try {
+          var slim = {
+            version: STORE_VERSION,
+            products: payloadRows.map(function (row) {
+              var lite = sanitize(row);
+              delete lite.images;
+              delete lite.description;
+              return lite;
+            }),
+            members: payload.members,
+            lockedAt: new Date().toISOString(),
+          };
+          localStorage.setItem(VERIFIED_STORAGE_KEY, JSON.stringify(slim));
+        } catch (slimError) {}
+      }
+    };
+    write(kept, members);
+
+    /* Forget the rows in the in-memory wipe-guard as well. */
+    if (Array.isArray(lastVerifiedInventory) && lastVerifiedInventory.length) {
+      lastVerifiedInventory = lastVerifiedInventory.filter(function (row) {
+        if (!isPlainProduct(row)) return true;
+        var rowId = row.id === null || row.id === undefined ? "" : String(row.id);
+        var rowTitleKey = normalizeTitle(row.title);
+        if (rowId && wantedIds[rowId]) return false;
+        if (rowTitleKey && wantedTitles[rowTitleKey]) return false;
+        return true;
+      });
+    }
+    return true;
+  };
+
   /* ------------------------------------------------------------------ *
    * Dedicated admin-added registry — "lurei_new_admin_products"
    * ------------------------------------------------------------------ *
@@ -2659,6 +2768,38 @@
     }
   };
 
+  /* Sheets purge — the delete half of the mirror. Fired from the Recycle
+     Bin's Permanent Delete (and Empty Bin) after every local layer is
+     already wiped, so a Sheets failure can never resurrect the record
+     locally: the request is best-effort and only removes the cloud copy. */
+  var purgeProductFromSheets_ = function (id) {
+    try {
+      var backend = window.LureiBackend;
+      if (!backend || typeof backend.isConfigured !== "function" || !backend.isConfigured()) {
+        return; /* no Web App URL configured — nothing to delete remotely */
+      }
+      if (typeof backend.deleteProduct !== "function") return;
+      var key = String(id === null || id === undefined ? "" : id).trim();
+      if (!key) return;
+      backend
+        .deleteProduct(key)
+        .then(function (result) {
+          console.info(
+            "LUREÍ product deleted from the Google Sheets Products tab:",
+            (result && result.deletedId) || key
+          );
+        })
+        .catch(function (error) {
+          console.warn(
+            "LUREÍ could not delete the product from Google Sheets (local wipe already done):",
+            error && error.message ? error.message : error
+          );
+        });
+    } catch (purgeError) {
+      /* A purge exception must never break the permanent delete. */
+    }
+  };
+
   var store = {
     storageKey: MASTER_STORAGE_KEY,
     categories: CATEGORIES,
@@ -2870,16 +3011,59 @@
       return store.restore(id);
     },
 
-    /* PERMANENT delete: the only destructive step in the workflow. The
-       binned record is erased; the tombstone stays, so the piece can never
-       drift back in through defaults, the vault or any cache. */
+    /* PERMANENT delete — the only destructive step in the workflow, and the
+       ONLY action that erases a product everywhere at once:
+         1. `lurei_recycle_bin`   — the binned full record is erased.
+         2. `lurei_verified_products` — the vault's safety copy AND its frozen
+            member-list entry are removed (deliberate exception to the
+            merge-only vault rule; the tombstone stays as the resurrection
+            guard so defaults / vault seeding can never re-attach the piece).
+         3. `lurei_new_admin_products` — the registry re-derives on the commit
+            below and drops the row automatically.
+         4. IndexedDB — commit() rewrites the durable mirror with a fresh
+            timestamp, so no older snapshot can resurrect the record.
+         5. Google Sheets "Products" tab — a best-effort deleteProduct request
+            removes the row from the cloud copy (local already wiped either
+            way; a Sheets failure is logged, never surfaced as an error). */
     purgeFromBin: function (id) {
-      removeFromRecycleBin([String(id)]);
+      var key = String(id);
+
+      /* Capture the binned record BEFORE erasing it, so the vault purge and
+         the Sheets delete know exactly which id + title to target. */
+      var binned = null;
+      readRecycleBin().some(function (entry) {
+        if (String(entry.id) === key) {
+          binned = entry;
+          return true;
+        }
+        return false;
+      });
+
+      removeFromRecycleBin([key]);
+      purgeVerifiedRows_(
+        [key],
+        binned && binned.product ? [binned.product.title] : []
+      );
+
+      /* Re-commit the (already tombstoned) store: re-derives the admin
+         registry without the purged row and rewrites the IndexedDB mirror
+         with a fresh timestamp, closing every local resurrection path. */
+      try {
+        commit(readStore());
+      } catch (error) {}
+
+      purgeProductFromSheets_(key);
       return true;
     },
 
-    /* Permanently erase every binned record at once. */
+    /* Permanently erase every binned record at once — each one goes through
+       the exact same full-wipe path as an individual Permanent Delete. */
     emptyBin: function () {
+      var entries = readRecycleBin();
+      var self = this;
+      entries.forEach(function (entry) {
+        self.purgeFromBin(entry.id);
+      });
       writeRecycleBin([]);
       return true;
     },
