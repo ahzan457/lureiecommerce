@@ -89,9 +89,12 @@
   /* ------------------------------------------------------------------ *
    * 1a. DEFAULT VERIFIED VAULT — the boutique's frozen master catalogue. *
    *                                                                     *
-   * These are the 51 verified owner products, exported verbatim from the *
+   * These are the verified owner products, exported verbatim from the    *
    * owner's own device records (the exact inventory that was live on the *
-   * storefront before the backend went quiet). It exists so that a fresh *
+   * storefront before the backend went quiet). The malformed test row    *
+   * ("iiehiia" — an empty-image dummy that once rode along in the export)*
+   * has been removed: only genuine catalog pieces are seeded. It exists  *
+   * so that a fresh *
    * deployment, a new browser, or a full storage reset can NEVER render  *
    * an empty storefront: the moment the "lurei_verified_products" vault  *
    * key is found empty, this list is written into it through the regular *
@@ -107,7 +110,6 @@
     {"id":2,"title":"Cartier Inspired Bracelet","price":30,"category":"under-30","type":"bracelets","image":"assets/products/cartier-inspired-bracelet.jpg","images":["assets/products/cartier-inspired-bracelet.jpg"],"description":"Luxury textured gold band bracelet.","badge":"","stock":null,"outOfStock":false},
     {"id":3,"title":"Crystal Ash Hoops","price":20,"category":"under-30","type":"earrings","image":"assets/products/crystal-ash-hoops.jpg","images":["assets/products/crystal-ash-hoops.jpg"],"description":"Sparkling crystal ash luxury hoops.","badge":"","stock":0,"outOfStock":false},
     {"id":7,"title":"Golden Bamboo Drops","price":30,"category":"under-30","type":"earrings","image":"assets/products/golden-bamboo-drops.jpg","images":["assets/products/golden-bamboo-drops.jpg"],"description":"Structured bamboo textured gold drop earrings.","badge":"","stock":0,"outOfStock":false},
-    {"id":54,"title":"iiehiia","price":23,"category":"under-30","type":"DRESS","image":"","images":[],"description":"agijaiojg","badge":"","stock":null,"outOfStock":false},
     {"id":1,"title":"Aura Golden Stud","price":25,"category":"under-30","type":"earrings","image":"assets/products/aura-golden-stud.jpg","images":["assets/products/aura-golden-stud.jpg"],"description":"Textured gold aura stud earrings.","badge":"","stock":null,"outOfStock":false},
     {"id":4,"title":"The Crystal Chain","price":30,"category":"under-30","type":"necklace","image":"assets/products/crystal-chain.jpg","images":["assets/products/crystal-chain.jpg"],"description":"Minimal sparkling crystal accent silver chain.","badge":"","stock":null,"outOfStock":false},
     {"id":5,"title":"Crystal Cherry Hoops","price":20,"category":"under-30","type":"earrings","image":"assets/products/crystal-cherry-hoops.jpg","images":["assets/products/crystal-cherry-hoops.jpg"],"description":"Vibrant cherry red crystal drop hoop earrings.","badge":"","stock":null,"outOfStock":false},
@@ -1739,12 +1741,34 @@
     });
 
     var vault = readVerifiedBase();
+    /* Scrub pass: any dummy/test row that reached the vault through an older
+       build (or a hand-edit) is dropped here, so the vault key itself is
+       cleaned on the next merge and the junk can never re-seed the
+       storefront. Legitimate owner rows are never touched — only rows the
+       shared dummy detector flags. */
+    var scrubbedTitles = {};
+    var scrubbedVault = vault.filter(function (row) {
+      if (isDummyItem(row)) {
+        var scrubKey = normalizeTitle(row.title);
+        if (scrubKey) scrubbedTitles[scrubKey] = true;
+        return false;
+      }
+      return true;
+    });
+    var scrubbedCount = vault.length - scrubbedVault.length;
+    vault = scrubbedVault;
+
     /* The frozen member list: read it from the existing payload if the vault
        was already locked; it must never grow afterwards. */
     var existingVaultPayload = parseStoredJSON(readFlag(VERIFIED_STORAGE_KEY), null);
     var members = isPlainProduct(existingVaultPayload) && Array.isArray(existingVaultPayload.members)
       ? existingVaultPayload.members.slice()
       : null;
+    if (members && scrubbedCount) {
+      members = members.filter(function (title) {
+        return !scrubbedTitles[normalizeTitle(title)];
+      });
+    }
 
     var indexById = {};
     var indexByTitle = {};
@@ -1794,7 +1818,7 @@
       }
     });
 
-    if (!admitted.length) return vault.length;
+    if (!admitted.length && !scrubbedCount) return vault.length;
 
     /* First lock: freeze the member list to exactly what the vault held at
        that moment. Later commits re-use it unchanged. */
@@ -1943,7 +1967,15 @@
     if (Array.isArray(parsed)) rows = parsed;
     else if (isPlainProduct(parsed) && Array.isArray(parsed.products)) rows = parsed.products;
     if (!rows) return [];
-    return rows.filter(isPlainProduct).map(sanitize).filter(isUsable);
+    /* Dummy/test entries are filtered on every read, so an erroneous row
+       that slipped into "lurei_new_admin_products" can never reach the
+       storefront, the dashboard or the recovery sweep — even before the
+       next commit rewrites the registry without it. */
+    return rows
+      .filter(isPlainProduct)
+      .filter(function (product) { return !isDummyItem(product); })
+      .map(sanitize)
+      .filter(isUsable);
   };
 
   var writeAdminNew = function (rows) {
@@ -2126,6 +2158,36 @@
     /\b(test|testing|tester|dummy|placeholder|asdf|untitled|lorem ipsum)\b/i;
   var DUMMY_FLAG_KEY_PATTERN = /^(isTest|isTester|isDummy|isPlaceholder|isSample|isDemo|isExample)$/;
 
+  /* Junk rows observed in live storage: exact test-entry titles (matched
+     after normalization) are always junk, and a bare category word ("ring",
+     "earrings"...) is junk when the row carries no photo and no copy — a
+     real piece always has at least one of the two. Real catalog titles
+     ("Lavender Bloom", "Zorei Zircon", ...) never equal a bare category
+     word, so legitimate stock can never match these rules. */
+  var DUMMY_EXACT_TITLES = { "iiehiia": true, "ring": true };
+  var DUMMY_BARE_CATEGORY_TITLES = {
+    "ring": true, "rings": true, "earring": true, "earrings": true,
+    "necklace": true, "necklaces": true, "bracelet": true, "bracelets": true,
+    "bangle": true, "bangles": true, "pendant": true, "pendants": true,
+    "chain": true, "chains": true, "hoop": true, "hoops": true,
+    "stud": true, "studs": true, "watch": true, "watches": true,
+    "set": true, "dress": true,
+  };
+
+  var dummyHasAnyImage = function (product) {
+    if (sanitizeImage(product.image)) return true;
+    if (Array.isArray(product.images)) {
+      for (var i = 0; i < product.images.length; i++) {
+        if (sanitizeImage(product.images[i])) return true;
+      }
+    }
+    return false;
+  };
+
+  var dummyHasAnyDescription = function (product) {
+    return !!(String(product.description || product.desc || "").trim());
+  };
+
   var dummyReasonFor = function (product) {
     if (!isPlainProduct(product)) return null;
     for (var key in product) {
@@ -2135,6 +2197,18 @@
     }
     var title = String(product.title || product.name || "").trim();
     if (!title) return null;
+    var titleKey = normalizeTitle(title);
+    if (titleKey && DUMMY_EXACT_TITLES[titleKey]) {
+      return "known junk test entry: " + title;
+    }
+    if (
+      titleKey &&
+      DUMMY_BARE_CATEGORY_TITLES[titleKey] &&
+      !dummyHasAnyImage(product) &&
+      !dummyHasAnyDescription(product)
+    ) {
+      return "bare category title with no photo or description: " + title;
+    }
     if (DUMMY_TITLE_PATTERN.test(title)) return "generic seed title: " + title;
     if (DUMMY_TITLE_KEYWORD_PATTERN.test(title)) return "test keyword in title: " + title;
     return null;
@@ -3451,7 +3525,7 @@
      after a full storage reset, the "lurei_verified_products" key does not
      exist yet — which used to leave the storefront and the collections grid
      empty until the owner re-entered every product. This seed closes that
-     gap: when (and ONLY when) the vault is empty, the frozen 51-product
+     gap: when (and ONLY when) the vault is empty, the frozen
      DEFAULT_VERIFIED_VAULT is written into it through the regular
      merge-only writer, so the seeding behaves exactly like an admin save —
      complete with the frozen member list, the dateAdded stamps and the
@@ -5705,10 +5779,14 @@ const stockLabelFor = (count) => `STOCK ${count} LEFT`;
   };
 
   /* Local image resolution:
-   * productImageCandidates() returns an ordered list of extension-less paths
-   * (its own folder first, then the other real folder). wireImage() walks that
-   * list, trying .jpg -> .png -> .jpeg (and upper-case variants) at runtime,
-   * because the dataset carries no extension and casing differs on disk.
+   * Every stored photo is collected — the primary cover first (product.image,
+   * then images[0] when the cover field is blank, which is exactly how
+   * admin-added pieces saved through the gallery arrive), then the rest of
+   * the gallery. productImageCandidates() turns local paths into an ordered
+   * list of extension-less paths (its own folder first, then the other real
+   * folder); wireImage() walks that list, trying .jpg -> .png -> .jpeg (and
+   * upper-case variants) at runtime, because the dataset carries no
+   * extension and casing differs on disk.
    *
    * The first URL that loads is cached per candidate key so grids, the cart and
    * the wishlist never re-probe the same file. Each error handler removes
@@ -5719,11 +5797,55 @@ const stockLabelFor = (count) => `STOCK ${count} LEFT`;
   const IMAGE_EXTENSIONS = ["jpg", "png", "jpeg", "JPG", "PNG", "JPEG"];
   const resolvedImages = new Map(); // candidate key -> working URL ("" = dead)
 
+  /* Section-local source sanitizer (the save-path sanitizer lives in the
+     storage closure, so it is re-implemented here with the same rules):
+     remote/data URLs pass verbatim, the dead assets/images/products/ folder
+     is dropped, and in-tree paths are normalised onto their file name so
+     the candidate builder can re-anchor them to the real folder. */
+  const IMAGE_DEAD_FOLDER = "assets/images/products/";
+  const sanitizeImageSource = (value) => {
+    if (typeof value !== "string") return "";
+    const trimmed = value.trim();
+    if (!trimmed) return "";
+    if (isRemoteImage(trimmed)) return trimmed;
+    const relative = trimmed.replace(/^\.\//, "");
+    if (relative.indexOf(IMAGE_DEAD_FOLDER) === 0) return "";
+    return relative;
+  };
+
+  /* Secure primary-photo mapper: returns the first usable stored source for
+   * a product — product.image when present, otherwise images[0]. Used by
+   * every render path that needs a single cover (cards, cart, wishlist, new
+   * rail) so a gallery-only record can never fall back to a blank space. */
+  const primaryImageOf = (product) => {
+    if (!product) return "";
+    const fromCover = sanitizeImageSource(product.image);
+    if (fromCover) return fromCover;
+    if (Array.isArray(product.images)) {
+      for (let i = 0; i < product.images.length; i++) {
+        const candidate = sanitizeImageSource(product.images[i]);
+        if (candidate) return candidate;
+      }
+    }
+    return "";
+  };
+
   const wireImage = (img, product, onExhausted) => {
-    const candidates = productImageCandidates(
-      product && product.image,
-      (product && (product.title || product.name)) || ""
-    );
+    const name = (product && (product.title || product.name)) || "";
+
+    /* Every stored photo joins the fallback chain: the primary cover first,
+       then gallery angles. Sources pass through the same rules the save
+       path uses, so dead-folder paths are dropped here and admin uploads /
+       IndexedDB records resolve identically to the built-in dataset. */
+    const sources = [];
+    const addSource = (value) => {
+      const src = sanitizeImageSource(value);
+      if (src && sources.indexOf(src) === -1) sources.push(src);
+    };
+    addSource(product && product.image);
+    if (product && Array.isArray(product.images)) product.images.forEach(addSource);
+    if (product && Array.isArray(product.fallbackImages)) product.fallbackImages.forEach(addSource);
+    addSource(product && product.fallbackImage);
 
     /* Uploads from the storefront editor arrive as Base64 data URLs, which are
        already complete sources and must not go through extension probing.
@@ -5731,28 +5853,48 @@ const stockLabelFor = (count) => `STOCK ${count} LEFT`;
        slipped in before the cell-cap guards), this product falls back to its
        OWN placeholder — never the shared fallback photo, so one broken row
        can never paint the same wrong image across the whole grid. */
-    if (candidates.length === 1 && isRemoteImage(candidates[0])) {
-      img.addEventListener("error", function () {
-        onExhausted();
-      }, { once: true });
-      img.src = candidates[0];
+    const primary = sources[0] || "";
+    const attempts = [];
+    const seen = {};
+    const pushProbe = (candidate) => {
+      const key = String(candidate).replace(/\.[^.]+$/, "");
+      if (seen[key]) return;
+      seen[key] = true;
+      attempts.push({ probe: key });
+    };
+    const pushDirect = (src) => {
+      if (seen[src]) return;
+      seen[src] = true;
+      attempts.push({ direct: src });
+    };
+
+    if (primary && isRemoteImage(primary)) {
+      /* Uploaded/remote cover first, then the remaining gallery uploads,
+         then the name-slug probe list as a healing fallback. */
+      sources.filter(isRemoteImage).forEach(pushDirect);
+      productImageCandidates("", name).forEach(pushProbe);
+    } else {
+      /* Probed local paths for the primary cover (own folder, alt folder,
+         title slug), then any uploaded/remote gallery photos verbatim,
+         then the name-slug heal list. */
+      productImageCandidates(primary, name)
+        .filter((candidate) => !isRemoteImage(candidate))
+        .forEach(pushProbe);
+      sources.filter(isRemoteImage).forEach(pushDirect);
+      productImageCandidates("", name).forEach(pushProbe);
+    }
+
+    if (!attempts.length) {
+      onExhausted();
       return;
     }
 
-    /* Candidate keys are tried in order, deduped. When every candidate is
-       exhausted, the card falls back to its OWN placeholder art — never a
-       shared product photo, so no two cards can ever display the same
-       image by accident. */
-    const keys = candidates
-      .map((candidate) => candidate.replace(/\.[^.]+$/, ""))
-      .filter((key, i, all) => all.indexOf(key) === i);
-    const lastIndex = keys.length - 1;
-
     /* Reuse a resolved URL when we have one; otherwise start at the first
-       candidate nobody has tried yet. -1 means every candidate is known dead. */
+       attempt nobody has tried yet. -1 means every attempt is known dead. */
+    const attemptKey = (attempt) => attempt.probe || attempt.direct;
     let index = -1;
-    for (let i = 0; i < keys.length; i++) {
-      const cached = resolvedImages.get(keys[i]);
+    for (let i = 0; i < attempts.length; i++) {
+      const cached = resolvedImages.get(attemptKey(attempts[i]));
       if (cached) {
         img.src = cached;
         return;
@@ -5766,29 +5908,41 @@ const stockLabelFor = (count) => `STOCK ${count} LEFT`;
 
     let extension = 0;
 
+    const startAttempt = (i) => {
+      const attempt = attempts[i];
+      if (attempt.direct) {
+        extension = 0;
+        img.src = attempt.direct;
+      } else {
+        img.src = `${attempt.probe}.${IMAGE_EXTENSIONS[extension]}`;
+      }
+    };
+
     const onLoaded = () => {
-      resolvedImages.set(keys[index], img.src);
+      resolvedImages.set(attemptKey(attempts[index]), img.src);
     };
 
     const onFailed = () => {
       img.removeEventListener("error", onFailed);
       img.removeEventListener("load", onLoaded);
 
-      if (extension < IMAGE_EXTENSIONS.length - 1) {
+      /* Probed filenames can still heal across extensions; uploaded/remote
+         sources have nothing to probe and die on their first error. */
+      if (attempts[index].probe && extension < IMAGE_EXTENSIONS.length - 1) {
         extension++;
-        img.src = `${keys[index]}.${IMAGE_EXTENSIONS[extension]}`;
+        img.src = `${attempts[index].probe}.${IMAGE_EXTENSIONS[extension]}`;
         img.addEventListener("load", onLoaded, { once: true });
         img.addEventListener("error", onFailed);
         return;
       }
 
-      /* This candidate is exhausted - mark it dead and move to the next. */
-      resolvedImages.set(keys[index], "");
+      /* This attempt is exhausted - mark it dead and move to the next. */
+      resolvedImages.set(attemptKey(attempts[index]), "");
 
       index++;
-      if (index <= lastIndex) {
+      if (index < attempts.length) {
         extension = 0;
-        img.src = `${keys[index]}.${IMAGE_EXTENSIONS[0]}`;
+        startAttempt(index);
         img.addEventListener("load", onLoaded, { once: true });
         img.addEventListener("error", onFailed);
         return;
@@ -5799,7 +5953,7 @@ const stockLabelFor = (count) => `STOCK ${count} LEFT`;
 
     img.addEventListener("load", onLoaded, { once: true });
     img.addEventListener("error", onFailed);
-    img.src = `${keys[index]}.${IMAGE_EXTENSIONS[0]}`;
+    startAttempt(index);
   };
 
   const buildCard = (product, index) => {
@@ -6188,7 +6342,7 @@ const stockLabelFor = (count) => `STOCK ${count} LEFT`;
       const media = document.createElement("div");
       media.className = "new-in-card__media";
 
-      if (product.image && typeof product.image === "string") {
+      if (primaryImageOf(product)) {
         const img = document.createElement("img");
         img.alt = product.title;
         img.width = 500;
@@ -6849,7 +7003,7 @@ const stockLabelFor = (count) => `STOCK ${count} LEFT`;
     const media = document.createElement("div");
     media.className = "cart-item__media";
 
-    if (product.image && typeof product.image === "string") {
+    if (primaryImageOf(product)) {
       const img = document.createElement("img");
       img.alt = product.title;
       img.width = 72;
@@ -6926,7 +7080,7 @@ const stockLabelFor = (count) => `STOCK ${count} LEFT`;
         id: product.id,
         title: product.title,
         price: product.price,
-        image: product.image,
+        image: primaryImageOf(product),
         quantity: 1,
       });
     }
@@ -6953,7 +7107,7 @@ const stockLabelFor = (count) => `STOCK ${count} LEFT`;
         id: product.id,
         title: product.title,
         price: product.price,
-        image: product.image,
+        image: primaryImageOf(product),
         quantity: amount,
       });
     }
@@ -8184,7 +8338,7 @@ Thank you!`;
     const media = document.createElement("div");
     media.className = "wishlist-item__media";
 
-    if (product.image && typeof product.image === "string") {
+    if (primaryImageOf(product)) {
       const img = document.createElement("img");
       img.alt = product.title;
       img.width = 72;
