@@ -661,6 +661,22 @@ function readProducts_() {
    storefront's shelving type (Earrings, Necklaces, Dresses…) — the field the
    owner picks in the editor — with the price-bucket value kept only as a
    fallback, so the tab reads like the boutique's own catalogue. */
+/* Google Sheets caps a single cell at 50,000 characters. A Base64 photo is
+   routinely larger, so writing it verbatim produces a TRUNCATED data URL —
+   poison that renders as a broken image (and then the same shared fallback
+   photo on every affected product). The spreadsheet is metadata, not blob
+   storage: the authoritative copy of every photo lives in the browser's
+   localStorage/IndexedDB mirrors. Any value over the safe limit is therefore
+   dropped from the cell entirely (never truncated mid-stream), and the
+   client re-fetches the real image from the on-device store. */
+var SHEETS_TEXT_LIMIT = 45000;
+
+function safeSheetText_(value) {
+  if (value === null || value === undefined) return "";
+  var text = String(value);
+  return text.length > SHEETS_TEXT_LIMIT ? "" : text;
+}
+
 function buildProductRow_(product) {
   var type = pick_(product, ["type", "Type"], "");
   var category = pick_(product, ["category", "Category"], "");
@@ -673,8 +689,8 @@ function buildProductRow_(product) {
     Title: pick_(product, ["title", "name", "Title", "Product Name"], ""),
     Price: pick_(product, ["price", "Price"], ""),
     Category: type !== "" && type !== undefined && type !== null ? type : category,
-    Image: pick_(product, ["image", "Image"], ""),
-    Description: pick_(product, ["description", "desc", "Description"], ""),
+    Image: safeSheetText_(pick_(product, ["image", "Image"], "")),
+    Description: safeSheetText_(pick_(product, ["description", "desc", "Description"], "")),
     "Date Added": pick_(
       product,
       ["dateAdded", "date_added", "Date Added", "Added"],
@@ -687,7 +703,7 @@ function buildProductRow_(product) {
     Stock: pick_(product, ["stock", "Stock"], ""),
     "Out Of Stock":
       pick_(product, ["outOfStock", "Out Of Stock"], false) === true ? "TRUE" : "",
-    Images: images,
+    Images: safeSheetText_(images),
   };
 }
 
@@ -802,7 +818,9 @@ function updateProduct_(product) {
     for (var key in product) {
       for (var c = 0; c < writeHead.length; c++) {
         if (normalizeKey_(writeHead[c]) === normalizeKey_(key)) {
-          sheet.getRange(row, c + 1).setValue(product[key]);
+          /* Cell-limit guard: an oversized value (a Base64 photo) must be
+             dropped, never truncated mid-stream into broken-image poison. */
+          sheet.getRange(row, c + 1).setValue(safeSheetText_(product[key]));
           break;
         }
       }

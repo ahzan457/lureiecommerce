@@ -996,10 +996,31 @@
   var CANONICAL_IMAGE_FOLDER = "assets/products/";
   var REMOTE_IMAGE = /^(https?:|data:|\/\/)/i;
 
+  /* A Base64 data URL is only trusted when it is plausibly COMPLETE: a real
+     image payload is padded (length divisible by 4) and substantial. A
+     value cut mid-stream — the classic artifact of the 50,000-character
+     Google Sheets cell limit — fails this test and is dropped ("") instead
+     of being carried into the catalogue as broken-image poison that makes
+     every affected product render the same shared fallback photo. */
+  var isValidImageDataUrl = function (value) {
+    var match = /^data:image\/[a-z0-9.+-]+;base64,([A-Za-z0-9+/=]+)$/i.exec(value);
+    if (!match) return false;
+    var payload = match[1];
+    return payload.length >= 64 && payload.length % 4 === 0;
+  };
+
   var sanitizeImage = function (value) {
     if (typeof value !== "string") return "";
     var trimmed = value.trim();
     if (!trimmed) return "";
+    if (/^data:image\//i.test(trimmed)) {
+      /* Base64 uploads from the editor: keep complete payloads, drop
+         truncated poison. (Non-base64 data URLs keep prior behaviour.) */
+      if (trimmed.indexOf(";base64,") !== -1) {
+        return isValidImageDataUrl(trimmed) ? trimmed : "";
+      }
+      return trimmed;
+    }
     if (REMOTE_IMAGE.test(trimmed)) return trimmed;
     if (trimmed.replace(/^\.\//, "").indexOf(DEAD_IMAGE_FOLDER) === 0) return "";
 
@@ -2882,6 +2903,16 @@
         return; /* no Web App URL configured — local-only save (by design) */
       }
       if (typeof backend.addProduct !== "function") return;
+      /* Cell-cap guard (mirrors Code.gs safeSheetText_): a Base64 photo is
+         larger than the 50,000-character Sheets cell limit, so shipping it
+         verbatim only produces a truncated, broken data URL in the cloud
+         copy. Oversized photo payloads are dropped from the mirror — the
+         full image always stays safe in the on-device localStorage and
+         IndexedDB layers, which are the system of record. */
+      var sheetsSafe = function (value) {
+        var text = String(value === null || value === undefined ? "" : value);
+        return text.length > 45000 ? "" : text;
+      };
       backend
         .addProduct({
           /* Full record: the canonical 7 Sheets columns plus the extra
@@ -2892,8 +2923,14 @@
           price: product.price,
           category: product.category || "",
           type: product.type || "",
-          image: product.image || "",
-          images: Array.isArray(product.images) ? product.images : [],
+          image: sheetsSafe(product.image || ""),
+          images: (Array.isArray(product.images) ? product.images : [])
+            .map(function (src) {
+              return sheetsSafe(src);
+            })
+            .filter(function (src) {
+              return src !== "";
+            }),
           description: product.description || "",
           badge: product.badge || "",
           stock: product.stock,
@@ -3299,6 +3336,11 @@
     priceBucketFor: priceBucketFor,
     resolve: resolve,
     stockFor: stockFor,
+    /* Shared image validator: the Sheets re-fetch mapper (normalizeProducts)
+       and any other consumer in later scopes must apply the same
+       complete-payload rule as sanitizeImage, so truncated Base64 poison
+       from the 50k-char cell cap can never enter a render path. */
+    isValidImageDataUrl: isValidImageDataUrl,
     created: store.created,
     setDefaults: store.setDefaults,
     store: store,
@@ -5592,8 +5634,25 @@ const stockLabelFor = (count) => `STOCK ${count} LEFT`;
            mirror into (Product ID / Title / Price / Category / Image /
            Description / Date Added), so a Sheets round-trip restores the
            full record instead of dropping id, type or the shelving category. */
-        const image = row.image ?? row.img ?? row.image_url ?? row["Image URL"] ?? row["Image"] ?? null;
+        let image = row.image ?? row.img ?? row.image_url ?? row["Image URL"] ?? row["Image"] ?? null;
         const title = row.title ?? row.name ?? row["Product Name"] ?? row["Title"] ?? null;
+        /* Cell-cap guard: a Base64 payload truncated by the Sheets 50,000-
+           character cell limit must be treated as absent, so the slug/folder
+           probe runs and the card never renders the same shared fallback
+           photo as every other poisoned row. The authoritative Base64 copy
+           always lives in the on-device store, which layers over these rows. */
+        if (
+          typeof image === "string" &&
+          /^data:image\//i.test(image.trim()) &&
+          image.indexOf(";base64,") !== -1
+        ) {
+          const api = window.LureiCatalogue;
+          const validator =
+            api && typeof api.isValidImageDataUrl === "function"
+              ? api.isValidImageDataUrl
+              : null;
+          if (!validator || !validator(image.trim())) image = null;
+        }
         /* First candidate is the best local guess; wireImage() retries the rest
            if that file is missing, so a stale folder heals itself. */
         const normalizedImage = productImageCandidates(image, title)[0];
@@ -5667,19 +5726,26 @@ const stockLabelFor = (count) => `STOCK ${count} LEFT`;
     );
 
     /* Uploads from the storefront editor arrive as Base64 data URLs, which are
-       already complete sources and must not go through extension probing. */
+       already complete sources and must not go through extension probing.
+       If the source fails to load (network drop, or a truncated Base64 that
+       slipped in before the cell-cap guards), this product falls back to its
+       OWN placeholder — never the shared fallback photo, so one broken row
+       can never paint the same wrong image across the whole grid. */
     if (candidates.length === 1 && isRemoteImage(candidates[0])) {
+      img.addEventListener("error", function () {
+        onExhausted();
+      }, { once: true });
       img.src = candidates[0];
       return;
     }
 
-    /* Candidate keys are tried in order, deduped, with the real aura photo as
-       the guaranteed last resort. */
+    /* Candidate keys are tried in order, deduped. When every candidate is
+       exhausted, the card falls back to its OWN placeholder art — never a
+       shared product photo, so no two cards can ever display the same
+       image by accident. */
     const keys = candidates
       .map((candidate) => candidate.replace(/\.[^.]+$/, ""))
       .filter((key, i, all) => all.indexOf(key) === i);
-    const fallbackKey = PRODUCT_IMAGE_FALLBACK.replace(/\.[^.]+$/, "");
-    if (keys.indexOf(fallbackKey) === -1) keys.push(fallbackKey);
     const lastIndex = keys.length - 1;
 
     /* Reuse a resolved URL when we have one; otherwise start at the first
